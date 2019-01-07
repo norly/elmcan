@@ -123,7 +123,9 @@ static DEFINE_SPINLOCK(elmcan_open_lock);
 
 
  /************************************************************************
-  *			ELM327: Transmission				 *
+  *		ELM327: Transmission				*
+  *								*
+  * (all functions assume elm->lock taken)			*
   ************************************************************************/
 
 static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
@@ -147,6 +149,11 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 }
 
 
+/*
+ * Take the ELM327 out of almost any state and back into command mode
+ *
+ * Assumes elm->lock taken.
+ */
 static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 {
 	if (elm->state != ELM_GETMAGICCHAR && elm->state != ELM_GETPROMPT) {
@@ -158,8 +165,15 @@ static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 }
 
 
+/*
+ * Schedule a CAN frame, and any necessary config changes,
+ * to be sent down the TTY.
+ *
+ * Assumes elm->lock taken.
+ */
 static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 {
+	/* Schedule any necessary changes in ELM327's CAN configuration */
 	if (elm->can_frame.can_id != frame->can_id) {
 		/* Set the new CAN ID for transmission. */
 		if ((frame->can_id & CAN_EFF_FLAG) ^ (elm->can_frame.can_id & CAN_EFF_FLAG)) {
@@ -182,6 +196,7 @@ static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 		}
 	}
 
+	/* Schedule the CAN frame itself. */
 	elm->can_frame = *frame;
 	set_bit(ELM_TODO_CAN_DATA, &elm->cmds_todo);
 
@@ -191,7 +206,9 @@ static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 
 
  /************************************************************************
-  *			ELM327: Initialization sequence			 *
+  *		ELM327: Initialization sequence			*
+  *								*
+  * (assumes elm->lock taken)					*
   ************************************************************************/
 
 static char *elm327_init_script[] = {
@@ -247,7 +264,9 @@ static void elm327_init(struct elmcan *elm)
 
 
  /************************************************************************
-  *			ELM327: Reception -> netdev glue		 *
+  *		ELM327: Reception -> netdev glue		*
+  *								*
+  * (assumes elm->lock taken)					*
   ************************************************************************/
 
 static void elm327_feed_frame_to_netdev(struct elmcan *elm, const struct can_frame *frame)
@@ -276,7 +295,9 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm, const struct can_fra
 
 
  /************************************************************************
-  *			ELM327: Panic handler				 *
+  *		ELM327: Panic handler				*
+  *								*
+  * (assumes elm->lock taken)					*
   ************************************************************************/
 
 static inline void elm327_panic(struct elmcan *elm)
@@ -296,7 +317,9 @@ static inline void elm327_panic(struct elmcan *elm)
 
 
  /************************************************************************
-  *			ELM327: Reception parser			 *
+  *		ELM327: Reception parser			*
+  *								*
+  * (assumes elm->lock taken)					*
   ************************************************************************/
 
 static void elm327_parse_error(struct elmcan *elm, int len)
@@ -379,7 +402,8 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 
 	/* Use spaces in CAN ID to distinguish 29 or 11 bit address length.
 	 * No out-of-bounds access:
-	 * We use the fact that we can always read from elm->rxbuf. */
+	 * We use the fact that we can always read from elm->rxbuf.
+	 */
 	if (elm->rxbuf[2] == ' ' && elm->rxbuf[5] == ' '
 		&& elm->rxbuf[8] == ' ' && elm->rxbuf[11] == ' '
 		&& elm->rxbuf[13] == ' ') {
@@ -390,18 +414,21 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 		datastart = 6;
 	} else {
 		/* This is not a well-formatted data line.
-		 * Assume it's an error message. */
+		 * Assume it's an error message.
+		 */
 		return 1;
 	}
 
 	if (hexlen < datastart) {
 		/* The line is too short to be a valid frame hex dump.
-		 * Something interrupted the hex dump or it is invalid. */
+		 * Something interrupted the hex dump or it is invalid.
+		 */
 		return 1;
 	}
 
 	/* From here on all chars up to buf[hexlen] are hex or spaces,
-	 * at well-defined offsets. */
+	 * at well-defined offsets.
+	 */
 
 	/* Read CAN data length */
 	frame.can_dlc = (hex_to_bin(elm->rxbuf[datastart - 2]) << 0);
@@ -435,7 +462,8 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 		/* Incomplete frame. */
 
 		/* Probably the ELM327's RS232 TX buffer was full.
-		 * Emit an error frame and exit. */
+		 * Emit an error frame and exit.
+		 */
 		frame.can_id = CAN_ERR_FLAG | CAN_ERR_CRTL;
 		frame.can_dlc = CAN_ERR_DLC;
 		frame.data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
@@ -510,7 +538,8 @@ static void elm327_handle_prompt(struct elmcan *elm)
 
 			/* Some chips are unreliable and need extra time after
 			 * init commands, as seen with a clone.
-			 * So let's do a dummy get-cmd-prompt dance. */
+			 * So let's do a dummy get-cmd-prompt dance.
+			 */
 			elm->state = ELM_NOTINIT;
 			elm327_kick_into_cmd_mode(elm);
 		} else if (test_and_clear_bit(ELM_TODO_SILENT_MONITOR, &elm->cmds_todo)) {
@@ -609,7 +638,8 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 
 		if (len == sizeof(elm->rxbuf)) {
 			/* Line exceeds buffer. It's probably all garbage.
-			 * Did we even connect at the right baud rate? */
+			 * Did we even connect at the right baud rate?
+			 */
 			pr_err("RX buffer overflow. Faulty ELM327 connected?\n");
 			elm327_panic(elm);
 		} else if (len == elm->rxfill) {
@@ -617,13 +647,16 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 				&& elm->rxbuf[elm->rxfill - 1] == '>') {
 				/* The ELM327's AT ST response timeout ran out,
 				 * so we got a prompt.
-				 * Clear RX buffer and restart listening. */
+				 * Clear RX buffer and restart listening.
+				 */
 				elm->rxfill = 0;
 
 				elm327_handle_prompt(elm);
 				return;
 			} else {
-				/* We haven't received a full line yet. Wait for more data. */
+				/* We haven't received a full line yet.
+				 * Wait for more data.
+				 */
 				return;
 			}
 		}
@@ -646,7 +679,9 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 
 
  /************************************************************************
-  *				netdev					 *
+  *		netdev						*
+  *								*
+  * (takes elm->lock)						*
   ************************************************************************/
 
 /* Netdevice DOWN -> UP routine */
@@ -767,7 +802,9 @@ static const struct net_device_ops elmcan_netdev_ops = {
 
 
  /************************************************************************
-  *			Line discipline					 *
+  *		Line discipline					*
+  *								*
+  * (takes elm->lock)						*
   ************************************************************************/
 
 /*
@@ -816,7 +853,8 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 	spin_unlock_bh(&elm->lock);
 }
 
-/* Write out remaining transmit buffer.
+/*
+ * Write out remaining transmit buffer.
  * Scheduled when TTY is writable.
  */
 static void elmcan_ldisc_tx_worker(struct work_struct *work)
@@ -949,10 +987,11 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 
 /*
  * Close down an elmcan channel.
- * This means flushing out any pending queues, and then returning. This
- * call is serialized against other ldisc functions.
+ * This means flushing out any pending queues, and then returning.
+ * This call is serialized against other ldisc functions:
+ * Once this is called, no other ldisc function of ours is entered.
  *
- * We also use this method for a hangup event.
+ * We also use this function for a hangup event.
  */
 static void elmcan_ldisc_close(struct tty_struct *tty)
 {
@@ -1027,7 +1066,7 @@ static struct tty_ldisc_ops elmcan_ldisc = {
 
 
  /************************************************************************
-  *			Module init/exit				 *
+  *		Module init/exit				*
   ************************************************************************/
 
 static int __init elmcan_init(void)
