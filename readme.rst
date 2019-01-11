@@ -270,8 +270,6 @@ To Do list for future development
 
 - ``if (!elm)``: Race with ``ldisc_close()``
 
-- ``elm->dev``: Race in ``ldisc_ioctl()``
-
 - DMA capable rx/tx buffers
 
 - fixup constants, constant for '``>``'

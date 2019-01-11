@@ -78,7 +78,7 @@ struct elmcan {
 	struct tty_struct	*tty;
 	struct net_device	*dev;
 
-	int			magic;
+	char			ifname[IFNAMSIZ];
 
 	/* Per-channel lock */
 	spinlock_t		lock;
@@ -684,6 +684,18 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
   * (takes elm->lock)						*
   ************************************************************************/
 
+static int elmcan_netdev_init(struct net_device *dev)
+{
+	struct elmcan *elm = netdev_priv(dev);
+
+	/* Copy the interface name here, so the SIOCGIFNAME case in
+	 * elmcan_ldisc_ioctl() doesn't race against unregister_candev().
+	 */
+	memcpy(elm->ifname, dev->name, IFNAMSIZ);
+
+	return 0;
+}
+
 /* Netdevice DOWN -> UP routine */
 static int elmcan_netdev_open(struct net_device *dev)
 {
@@ -791,6 +803,7 @@ static int elmcan_netdev_change_mtu(struct net_device *dev, int new_mtu)
 }
 
 static const struct net_device_ops elmcan_netdev_ops = {
+	.ndo_init       = elmcan_netdev_init,
 	.ndo_open	= elmcan_netdev_open,
 	.ndo_stop	= elmcan_netdev_close,
 	.ndo_start_xmit	= elmcan_netdev_start_xmit,
@@ -982,6 +995,8 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 		return err;
 	}
 
+	netdev_info(elm->dev, "elmcan on %s.\n", tty->name);
+
 	return 0;
 }
 
@@ -1036,8 +1051,8 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
 
 	switch (cmd) {
 	case SIOCGIFNAME:
-		tmp = strlen(elm->dev->name) + 1;
-		if (copy_to_user((void __user *)arg, elm->dev->name, tmp))
+		tmp = strlen(elm->ifname) + 1;
+		if (copy_to_user((void __user *)arg, elm->ifname, tmp))
 			return -EFAULT;
 		return 0;
 
