@@ -57,6 +57,7 @@ MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
 
 #define ELM327_MAGIC_CHAR 'y'
 #define ELM327_MAGIC_STRING "y"
+#define ELM327_READY_CHAR '>'
 
 
 /* Bits in elm->cmds_todo */
@@ -623,7 +624,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 				elm->state = ELM_GETPROMPT;
 				i++;
 				break;
-			} else if (elm->rxbuf[i] == '>') {
+			} else if (elm->rxbuf[i] == ELM327_READY_CHAR) {
 				elm327_send(elm, ELM327_MAGIC_STRING, 1);
 				i++;
 				break;
@@ -637,7 +638,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 
 	case ELM_GETPROMPT:
 		/* Wait for '>' */
-		if (elm->rxbuf[elm->rxfill - 1] == '>') {
+		if (elm->rxbuf[elm->rxfill - 1] == ELM327_READY_CHAR) {
 			elm327_handle_prompt(elm);
 		}
 
@@ -660,7 +661,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			elm327_panic(elm);
 		} else if (len == elm->rxfill) {
 			if (elm->state == ELM_RECEIVING
-				&& elm->rxbuf[elm->rxfill - 1] == '>') {
+				&& elm->rxbuf[elm->rxfill - 1] == ELM327_READY_CHAR) {
 				/* The ELM327's AT ST response timeout ran out,
 				 * so we got a prompt.
 				 * Clear RX buffer and restart listening.

@@ -270,6 +270,4 @@ To Do list for future development
 
 - DMA capable rx/tx buffers
 
-- fixup constants, constant for '``>``'
-
 - flushing of ``tx_work`` is too late in ``ldisc_close()``
