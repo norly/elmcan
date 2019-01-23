@@ -47,7 +47,7 @@ MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
 
 /* Line discipline ID number */
 #ifndef N_ELMCAN
-#define N_ELMCAN 26
+#define N_ELMCAN 29
 #endif
 
 #define ELM327_CAN_CONFIG_SEND_SFF           0x8000
