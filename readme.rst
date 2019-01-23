@@ -260,8 +260,6 @@ incomplete) data frame::
 To Do list for future development
 ----------------------------------
 
-- Handle ``write()`` error
-
 - Rename ``elm327_panic()``
 
 - No auto-restart in ``elm327_panic()``?

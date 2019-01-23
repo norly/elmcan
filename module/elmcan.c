@@ -137,6 +137,8 @@ struct elmcan {
 static DEFINE_SPINLOCK(elmcan_discdata_lock);
 
 
+static inline void elm327_panic(struct elmcan *elm);
+
 
 
  /************************************************************************
@@ -161,6 +163,11 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 	 */
 	set_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 	actual = elm->tty->ops->write(elm->tty, elm->txbuf, len);
+	if (actual < 0) {
+		pr_err("Failed to write to tty for %s.\n", elm->dev->name);
+		elm327_panic(elm);
+	}
+
 	elm->txleft = len - actual;
 	elm->txhead = elm->txbuf + actual;
 }
