@@ -268,8 +268,6 @@ To Do list for future development
 
 - Stop current function when in ``elm327_panic()``
 
-- ``if (!elm)``: Race with ``ldisc_close()``
-
 - DMA capable rx/tx buffers
 
 - fixup constants, constant for '``>``'

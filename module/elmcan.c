@@ -20,7 +20,9 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 
+#include <linux/atomic.h>
 #include <linux/bitops.h>
+#include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/if_ether.h>
 #include <linux/kernel.h>
@@ -83,6 +85,15 @@ struct elmcan {
 	/* Per-channel lock */
 	spinlock_t		lock;
 
+	/* Keep track of how many things are using this struct.
+	 * Once it reaches 0, we are in the process of cleaning up,
+	 * and new operations will be cancelled immediately.
+	 * Use atomic_t rather than refcount_t because we deliberately
+	 * decrement to 0, and refcount_dec() spills a WARN_ONCE in
+	 * that case.
+	 */
+	atomic_t		refcount;
+
 	/* TTY TX helpers */
 	struct work_struct	tx_work;	/* Flushes TTY TX buffer   */
 	unsigned char		txbuf[32];
@@ -117,7 +128,12 @@ struct elmcan {
 };
 
 
-static DEFINE_SPINLOCK(elmcan_open_lock);
+/* A lock for all tty->disc_data handled by this ldisc.
+ * This is to prevent a case where tty->disc_data is set to NULL,
+ * yet someone is still trying to dereference it.
+ * Without this, we cannot do a clean shutdown.
+ */
+static DEFINE_SPINLOCK(elmcan_discdata_lock);
 
 
 
@@ -821,6 +837,44 @@ static const struct net_device_ops elmcan_netdev_ops = {
   ************************************************************************/
 
 /*
+ * Get a reference to our struct, taking into account locks/refcounts.
+ * This is to ensure ordering in case we are shutting down, and to ensure
+ * there is a refcount at all (because tty->disc_data may be NULL).
+ */
+static struct elmcan* get_elm(struct tty_struct *tty)
+{
+	struct elmcan *elm;
+	bool got_ref;
+
+	/* Lock all elmcan TTYs, so tty->disc_data can't become NULL
+	 * the moment before we increase the reference counter.
+	 */
+	spin_lock_bh(&elmcan_discdata_lock);
+	elm = (struct elmcan *) tty->disc_data;
+
+	if (!elm) {
+		spin_unlock_bh(&elmcan_discdata_lock);
+		return NULL;
+	}
+
+	got_ref = atomic_inc_not_zero(&elm->refcount);
+	spin_unlock_bh(&elmcan_discdata_lock);
+
+	if (!got_ref) {
+		return NULL;
+	}
+
+	return elm;
+}
+
+static void put_elm(struct elmcan *elm)
+{
+	atomic_dec(&elm->refcount);
+}
+
+
+
+/*
  * Handle the 'receiver data ready' interrupt.
  * This function is called by the 'tty_io' module in the kernel when
  * a block of ELM327 CAN data has been received, which can now be parsed
@@ -831,7 +885,7 @@ static const struct net_device_ops elmcan_netdev_ops = {
 static void elmcan_ldisc_rx(struct tty_struct *tty,
 			const unsigned char *cp, char *fp, int count)
 {
-	struct elmcan *elm = (struct elmcan *) tty->disc_data;
+	struct elmcan *elm = get_elm(tty);
 
 	if (!elm)
 		return;
@@ -844,6 +898,8 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 			spin_lock_bh(&elm->lock);
 			elm327_panic(elm);
 			spin_unlock_bh(&elm->lock);
+
+			put_elm(elm);
 			return;
 		}
 		if (*cp != 0) {
@@ -858,12 +914,16 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		spin_lock_bh(&elm->lock);
 		elm327_panic(elm);
 		spin_unlock_bh(&elm->lock);
+
+		put_elm(elm);
 		return;
 	}
 
 	spin_lock_bh(&elm->lock);
 	elm327_parse_rxbuf(elm);
 	spin_unlock_bh(&elm->lock);
+
+	put_elm(elm);
 }
 
 /*
@@ -872,6 +932,9 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
  */
 static void elmcan_ldisc_tx_worker(struct work_struct *work)
 {
+	/* No need to use get_elm() here, as we'll always flush workers
+	 * befory destroying the elmcan object.
+	 */
 	struct elmcan *elm = container_of(work, struct elmcan, tx_work);
 	ssize_t actual;
 
@@ -910,9 +973,14 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
  */
 static void elmcan_ldisc_tx_wakeup(struct tty_struct *tty)
 {
-	struct elmcan *elm = tty->disc_data;
+	struct elmcan *elm = get_elm(tty);
+
+	if (!elm)
+		return;
 
 	schedule_work(&elm->tx_work);
+
+	put_elm(elm);
 }
 
 
@@ -949,16 +1017,6 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	if (!tty->ops->write)
 		return -EOPNOTSUPP;
 
-	elm = tty->disc_data;
-
-	/* First make sure we're not already connected.
-	 * Also, protect against simlutaneous open calls. */
-	spin_lock_bh(&elmcan_open_lock);
-	if (elm) {
-		spin_unlock_bh(&elmcan_open_lock);
-		return -EEXIST;
-	}
-	spin_unlock_bh(&elmcan_open_lock);
 
 	/* OK.  Find a free elmcan channel to use. */
 	dev = alloc_candev(sizeof(struct elmcan), 0);
@@ -970,6 +1028,7 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	tty->receive_room = 65536; /* We don't flow control */
 	elm->txleft = 0; /* Clear TTY TX buffer */
 	spin_lock_init(&elm->lock);
+	atomic_set(&elm->refcount, 1);
 	INIT_WORK(&elm->tx_work, elmcan_ldisc_tx_worker);
 
 	/* Configure CAN metadata */
@@ -1010,14 +1069,31 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
  */
 static void elmcan_ldisc_close(struct tty_struct *tty)
 {
-	struct elmcan *elm = (struct elmcan *) tty->disc_data;
+	/* Use get_elm() to synchronize against other users */
+	struct elmcan *elm = get_elm(tty);
 
-	/* First make sure we're connected. */
 	if (!elm)
 		return;
 
-	/* Flush network side */
+	/* Tear down network side.
+	 * unregister_netdev() calls .ndo_stop() so we don't have to.
+	 */
 	unregister_candev(elm->dev);
+
+	/* Decrease the refcount twice, once for our own get_elm(),
+	 * and once to remove the count of 1 that we set in _open().
+	 * Once it reaches 0, we can safely destroy it.
+	 */
+	put_elm(elm);
+	put_elm(elm);
+
+	/* Spin until refcount reaches 0 */
+	while(atomic_read(&elm->refcount) > 0)
+		msleep(1);
+
+	/* At this point, all ldisc calls to us will be no-ops.
+	 * Since the refcount is 0, they are bailing immediately.
+	 */
 
 	/* Mark channel as dead */
 	spin_lock_bh(&elm->lock);
@@ -1027,6 +1103,8 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 
 	/* Flush TTY side */
 	flush_work(&elm->tx_work);
+
+	netdev_info(elm->dev, "elmcan off %s.\n", tty->name);
 
 	/* Free our memory */
 	free_candev(elm->dev);
@@ -1042,7 +1120,7 @@ static int elmcan_ldisc_hangup(struct tty_struct *tty)
 static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
 			unsigned int cmd, unsigned long arg)
 {
-	struct elmcan *elm = (struct elmcan *) tty->disc_data;
+	struct elmcan *elm = get_elm(tty);
 	unsigned int tmp;
 
 	/* First make sure we're connected. */
@@ -1052,14 +1130,20 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
 	switch (cmd) {
 	case SIOCGIFNAME:
 		tmp = strlen(elm->ifname) + 1;
-		if (copy_to_user((void __user *)arg, elm->ifname, tmp))
+		if (copy_to_user((void __user *)arg, elm->ifname, tmp)) {
+			put_elm(elm);
 			return -EFAULT;
+		}
+
+		put_elm(elm);
 		return 0;
 
 	case SIOCSIFHWADDR:
+		put_elm(elm);
 		return -EINVAL;
 
 	default:
+		put_elm(elm);
 		return tty_mode_ioctl(tty, file, cmd, arg);
 	}
 }
