@@ -164,7 +164,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 	set_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 	actual = elm->tty->ops->write(elm->tty, elm->txbuf, len);
 	if (actual < 0) {
-		pr_err("Failed to write to tty for %s.\n", elm->dev->name);
+		netdev_err(elm->dev, "Failed to write to tty %s.\n", elm->tty->name);
 		elm327_hw_failure(elm);
 	}
 
@@ -558,7 +558,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 			elm->next_init_cmd++;
 			if (!(*elm->next_init_cmd)) {
 				clear_bit(ELM_TODO_INIT, &elm->cmds_todo);
-				pr_info("%s: Initialization finished.\n", elm->dev->name);
+				netdev_info(elm->dev, "Initialization finished.\n");
 			}
 
 			/* Some chips are unreliable and need extra time after
@@ -793,7 +793,7 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb, struct net_devi
 		goto out;
 
 	if (!netif_running(dev))  {
-		pr_warn("%s: xmit: iface is down\n", dev->name);
+		netdev_warn(elm->dev, "xmit: iface is down.\n");
 		goto out;
 	}
 
@@ -966,7 +966,7 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 
 	actual = elm->tty->ops->write(elm->tty, elm->txhead, elm->txleft);
 	if (actual < 0) {
-		pr_err("Failed to write to tty for %s.\n", elm->dev->name);
+		netdev_err(elm->dev, "Failed to write to tty %s.\n", elm->tty->name);
 		elm327_hw_failure(elm);
 	}
 
