@@ -137,7 +137,7 @@ struct elmcan {
 static DEFINE_SPINLOCK(elmcan_discdata_lock);
 
 
-static inline void elm327_panic(struct elmcan *elm);
+static inline void elm327_hw_failure(struct elmcan *elm);
 
 
 
@@ -165,7 +165,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 	actual = elm->tty->ops->write(elm->tty, elm->txbuf, len);
 	if (actual < 0) {
 		pr_err("Failed to write to tty for %s.\n", elm->dev->name);
-		elm327_panic(elm);
+		elm327_hw_failure(elm);
 	}
 
 	elm->txleft = len - actual;
@@ -319,12 +319,13 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm, const struct can_fra
 
 
  /************************************************************************
-  *		ELM327: Panic handler				*
+  *		ELM327: "Panic" handler				*
   *								*
   * (assumes elm->lock taken)					*
   ************************************************************************/
 
-static inline void elm327_panic(struct elmcan *elm)
+/* Called when we're out of ideas and just want it all to end. */
+static inline void elm327_hw_failure(struct elmcan *elm)
 {
 	struct can_frame frame = {0};
 
@@ -665,7 +666,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			 * Did we even connect at the right baud rate?
 			 */
 			pr_err("RX buffer overflow. Faulty ELM327 connected?\n");
-			elm327_panic(elm);
+			elm327_hw_failure(elm);
 		} else if (len == elm->rxfill) {
 			if (elm->state == ELM_RECEIVING
 				&& elm->rxbuf[elm->rxfill - 1] == ELM327_READY_CHAR) {
@@ -904,7 +905,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 			pr_err("Error in received character stream. Check your wiring.");
 
 			spin_lock_bh(&elm->lock);
-			elm327_panic(elm);
+			elm327_hw_failure(elm);
 			spin_unlock_bh(&elm->lock);
 
 			put_elm(elm);
@@ -920,7 +921,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		pr_err("Receive buffer overflowed. Bad chip or wiring?");
 
 		spin_lock_bh(&elm->lock);
-		elm327_panic(elm);
+		elm327_hw_failure(elm);
 		spin_unlock_bh(&elm->lock);
 
 		put_elm(elm);
@@ -966,7 +967,7 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 	actual = elm->tty->ops->write(elm->tty, elm->txhead, elm->txleft);
 	if (actual < 0) {
 		pr_err("Failed to write to tty for %s.\n", elm->dev->name);
-		elm327_panic(elm);
+		elm327_hw_failure(elm);
 	}
 
 	elm->txleft -= actual;

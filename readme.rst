@@ -260,8 +260,6 @@ incomplete) data frame::
 To Do list for future development
 ----------------------------------
 
-- Rename ``elm327_panic()``
-
 - No auto-restart in ``elm327_panic()``?
 
 - Stop current function when in ``elm327_panic()``
