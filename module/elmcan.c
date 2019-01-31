@@ -369,7 +369,7 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 	switch(len) {
 		case 17:
 			if (!memcmp(elm->rxbuf, "UNABLE TO CONNECT", 17)) {
-				pr_err("The ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
+				netdev_err(elm->dev, "The ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
 			}
 			break;
 		case 11:
@@ -404,7 +404,7 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 			break;
 		case 5:
 			if (!memcmp(elm->rxbuf, "ERR", 3)) {
-				pr_err("The ELM327 reported an ERR%c%c. Please power it off and on again.\n",
+				netdev_err(elm->dev, "The ELM327 reported an ERR%c%c. Please power it off and on again.\n",
 					elm->rxbuf[3], elm->rxbuf[4]);
 				frame.can_id |= CAN_ERR_CRTL;
 			}
@@ -677,7 +677,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			/* Line exceeds buffer. It's probably all garbage.
 			 * Did we even connect at the right baud rate?
 			 */
-			pr_err("RX buffer overflow. Faulty ELM327 connected?\n");
+			netdev_err(elm->dev, "RX buffer overflow. Faulty ELM327 connected?\n");
 			elm327_hw_failure(elm);
 			return;
 		} else if (len == elm->rxfill) {
@@ -915,7 +915,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 	/* Read the characters out of the buffer */
 	while (count-- && elm->rxfill < sizeof(elm->rxbuf)) {
 		if (fp && *fp++) {
-			pr_err("Error in received character stream. Check your wiring.");
+			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
 
 			spin_lock_bh(&elm->lock);
 			elm327_hw_failure(elm);
@@ -931,7 +931,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 	}
 
 	if (count >= 0) {
-		pr_err("Receive buffer overflowed. Bad chip or wiring?");
+		netdev_err(elm->dev, "Receive buffer overflowed. Bad chip or wiring?");
 
 		spin_lock_bh(&elm->lock);
 		elm327_hw_failure(elm);
@@ -1151,7 +1151,6 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
 	struct elmcan *elm = get_elm(tty);
 	unsigned int tmp;
 
-	/* First make sure we're connected. */
 	if (!elm)
 		return -EINVAL;
 
