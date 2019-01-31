@@ -93,6 +93,11 @@ struct elmcan {
 	 */
 	atomic_t		refcount;
 
+	/* Stop the channel on hardware failure.
+	 * Once this is true, nothing will be sent to the TTY.
+	 */
+	bool			hw_failure;
+
 	/* TTY TX helpers */
 	struct work_struct	tx_work;	/* Flushes TTY TX buffer   */
 	unsigned char		txbuf[32];
@@ -148,6 +153,10 @@ static inline void elm327_hw_failure(struct elmcan *elm);
 static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 {
 	int actual;
+
+	if (elm->hw_failure) {
+		return;
+	}
 
 	memcpy(elm->txbuf, buf, len);
 
@@ -327,14 +336,18 @@ static inline void elm327_hw_failure(struct elmcan *elm)
 {
 	struct can_frame frame = {0};
 
-	frame.can_id = CAN_ERR_FLAG | CAN_ERR_RESTARTED;
+	frame.can_id = CAN_ERR_FLAG;
 	frame.can_dlc = CAN_ERR_DLC;
+	frame.data[5] = 'R';
+	frame.data[6] = 'I';
+	frame.data[7] = 'P';
 	elm327_feed_frame_to_netdev(elm, &frame);
 
-	pr_err("ELM327 misbehaved. Re-initializing.\n");
+	netdev_err(elm->dev, "ELM327 misbehaved. "
+			"Blocking further communication.\n");
 
-	elm->can.can_stats.restarts++;
-	elm327_init(elm);
+	elm->hw_failure = true;
+	can_bus_off(elm->dev);
 }
 
 
@@ -714,6 +727,13 @@ static int elmcan_netdev_open(struct net_device *dev)
 	int err;
 
 	spin_lock_bh(&elm->lock);
+	if (elm->hw_failure) {
+		netdev_err(elm->dev, "Refusing to open interface after "
+				"a hardware fault has been detected.\n");
+		spin_unlock_bh(&elm->lock);
+		return -EIO;
+	}
+
 	if (elm->tty == NULL) {
 		spin_unlock_bh(&elm->lock);
 		return -ENODEV;
@@ -787,6 +807,12 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb, struct net_devi
 	 * See Documentation/networking/netdevices.txt
 	 */
 	spin_lock(&elm->lock);
+
+	/* We shouldn't get here after a hardware fault:
+	 * can_bus_off() calls netif_carrier_off()
+	 */
+	BUG_ON(elm->hw_failure);
+
 	if (elm->tty == NULL
 		|| elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY) {
 		spin_unlock(&elm->lock);
@@ -933,7 +959,11 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 	ssize_t actual;
 
 	spin_lock_bh(&elm->lock);
-	/* First make sure we're connected. */
+	if (elm->hw_failure) {
+		spin_unlock_bh(&elm->lock);
+		return;
+	}
+
 	if (!elm->tty || !netif_running(elm->dev)) {
 		spin_unlock_bh(&elm->lock);
 		return;

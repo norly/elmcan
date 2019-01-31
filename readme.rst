@@ -260,8 +260,6 @@ incomplete) data frame::
 To Do list for future development
 ----------------------------------
 
-- No auto-restart in ``elm327_panic()``?
-
 - Stop current function when in ``elm327_panic()``
 
 - DMA capable rx/tx buffers
