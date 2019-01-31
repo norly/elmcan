@@ -260,8 +260,6 @@ incomplete) data frame::
 To Do list for future development
 ----------------------------------
 
-- Stop current function when in ``elm327_panic()``
-
 - DMA capable rx/tx buffers
 
 - flushing of ``tx_work`` is too late in ``ldisc_close()``

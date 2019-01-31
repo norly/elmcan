@@ -173,6 +173,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 	if (actual < 0) {
 		netdev_err(elm->dev, "Failed to write to tty %s.\n", elm->tty->name);
 		elm327_hw_failure(elm);
+		return;
 	}
 
 	elm->txleft = len - actual;
@@ -678,6 +679,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			 */
 			pr_err("RX buffer overflow. Faulty ELM327 connected?\n");
 			elm327_hw_failure(elm);
+			return;
 		} else if (len == elm->rxfill) {
 			if (elm->state == ELM_RECEIVING
 				&& elm->rxbuf[elm->rxfill - 1] == ELM327_READY_CHAR) {
@@ -983,6 +985,8 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 	if (actual < 0) {
 		netdev_err(elm->dev, "Failed to write to tty %s.\n", elm->tty->name);
 		elm327_hw_failure(elm);
+		spin_unlock_bh(&elm->lock);
+		return;
 	}
 
 	elm->txleft -= actual;
