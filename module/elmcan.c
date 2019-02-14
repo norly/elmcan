@@ -335,8 +335,9 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm, const struct can_fra
 /* Called when we're out of ideas and just want it all to end. */
 static inline void elm327_hw_failure(struct elmcan *elm)
 {
-	struct can_frame frame = {0};
+	struct can_frame frame;
 
+	memset(&frame, 0, sizeof(frame));
 	frame.can_id = CAN_ERR_FLAG;
 	frame.can_dlc = CAN_ERR_DLC;
 	frame.data[5] = 'R';
@@ -361,8 +362,9 @@ static inline void elm327_hw_failure(struct elmcan *elm)
 
 static void elm327_parse_error(struct elmcan *elm, int len)
 {
-	struct can_frame frame = {0};
+	struct can_frame frame;
 
+	memset(&frame, 0, sizeof(frame));
 	frame.can_id = CAN_ERR_FLAG;
 	frame.can_dlc = CAN_ERR_DLC;
 
@@ -420,10 +422,12 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 
 static int elm327_parse_frame(struct elmcan *elm, int len)
 {
-	struct can_frame frame = {0};
+	struct can_frame frame;
 	int hexlen;
 	int datastart;
 	int i;
+
+	memset(&frame, 0, sizeof(frame));
 
 	/* Find first non-hex and non-space character:
 	 *  - In the simplest case, there is none.
