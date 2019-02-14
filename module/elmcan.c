@@ -567,7 +567,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 {
 	if (elm->cmds_todo) {
 		struct can_frame *frame = &elm->can_frame;
-		char txbuf[20];
+		char local_txbuf[20];
 
 		if (test_bit(ELM_TODO_INIT, &elm->cmds_todo)) {
 			elm327_send(elm, *elm->next_init_cmd, strlen(*elm->next_init_cmd));
@@ -585,36 +585,54 @@ static void elm327_handle_prompt(struct elmcan *elm)
 			elm327_kick_into_cmd_mode(elm);
 
 			return;
+
 		} else if (test_and_clear_bit(ELM_TODO_SILENT_MONITOR, &elm->cmds_todo)) {
-			snprintf(txbuf, sizeof(txbuf), "ATCSM%i\r", !(!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)));
+			sprintf(local_txbuf, "ATCSM%i\r",
+				!(!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)));
+
 		} else if (test_and_clear_bit(ELM_TODO_RESPONSES, &elm->cmds_todo)) {
-			snprintf(txbuf, sizeof(txbuf), "ATR%i\r", !(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
+			sprintf(local_txbuf, "ATR%i\r",
+				!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
+
 		} else if (test_and_clear_bit(ELM_TODO_CAN_CONFIG, &elm->cmds_todo)) {
-			snprintf(txbuf, sizeof(txbuf), "ATPB%04X\r", elm->can_config);
+			sprintf(local_txbuf, "ATPB%04X\r",
+				elm->can_config);
+
 		} else if (test_and_clear_bit(ELM_TODO_CANID_29BIT_HIGH, &elm->cmds_todo)) {
-			snprintf(txbuf, sizeof(txbuf), "ATCP%02X\r", (frame->can_id & CAN_EFF_MASK) >> 24);
+			sprintf(local_txbuf, "ATCP%02X\r",
+				(frame->can_id & CAN_EFF_MASK) >> 24);
+
 		} else if (test_and_clear_bit(ELM_TODO_CANID_29BIT_LOW, &elm->cmds_todo)) {
-			snprintf(txbuf, sizeof(txbuf), "ATSH%06X\r", frame->can_id & CAN_EFF_MASK & ((1 << 24) - 1));
+			sprintf(local_txbuf, "ATSH%06X\r",
+				frame->can_id & CAN_EFF_MASK & ((1 << 24) - 1));
+
 		} else if (test_and_clear_bit(ELM_TODO_CANID_11BIT, &elm->cmds_todo)) {
-			snprintf(txbuf, sizeof(txbuf), "ATSH%03X\r", frame->can_id & CAN_SFF_MASK);
+			sprintf(local_txbuf, "ATSH%03X\r",
+				frame->can_id & CAN_SFF_MASK);
+
 		} else if (test_and_clear_bit(ELM_TODO_CAN_DATA, &elm->cmds_todo)) {
 			if (frame->can_id & CAN_RTR_FLAG) {
-				snprintf(txbuf, sizeof(txbuf), "ATRTR\r");
+				/* Send an RTR frame. Their DLC is fixed.
+				 * Some chips don't send them at all.
+				 */
+				sprintf(local_txbuf, "ATRTR\r");
 			} else {
+				/* Send a regular CAN data frame */
 				int i;
 
 				for (i = 0; i < frame->can_dlc; i++) {
-					sprintf(&txbuf[2*i], "%02X", frame->data[i]);
+					sprintf(&local_txbuf[2*i], "%02X",
+						frame->data[i]);
 				}
 
-				sprintf(&txbuf[2*i], "\r");
+				sprintf(&local_txbuf[2*i], "\r");
 			}
 
 			elm->drop_next_line = 1;
 			elm->state = ELM_RECEIVING;
 		}
 
-		elm327_send(elm, txbuf, strlen(txbuf));
+		elm327_send(elm, local_txbuf, strlen(local_txbuf));
 	} else {
 		/* Enter CAN monitor mode */
 		elm327_send(elm, "ATMA\r", 5);
