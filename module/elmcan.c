@@ -66,6 +66,7 @@ enum ELM_TODO {
 	ELM_TODO_CANID_11BIT,
 	ELM_TODO_CANID_29BIT_LOW,
 	ELM_TODO_CANID_29BIT_HIGH,
+	ELM_TODO_CAN_CONFIG_PART2,
 	ELM_TODO_CAN_CONFIG,
 	ELM_TODO_RESPONSES,
 	ELM_TODO_SILENT_MONITOR,
@@ -595,6 +596,10 @@ static void elm327_handle_prompt(struct elmcan *elm)
 				!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
 
 		} else if (test_and_clear_bit(ELM_TODO_CAN_CONFIG, &elm->cmds_todo)) {
+			sprintf(local_txbuf, "ATPC\r");
+			set_bit(ELM_TODO_CAN_CONFIG_PART2, &elm->cmds_todo);
+
+		} else if (test_and_clear_bit(ELM_TODO_CAN_CONFIG_PART2, &elm->cmds_todo)) {
 			sprintf(local_txbuf, "ATPB%04X\r",
 				elm->can_config);
 
