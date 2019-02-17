@@ -1037,18 +1037,29 @@ static void elmcan_ldisc_tx_wakeup(struct tty_struct *tty)
 
 
 
-/* Some fake bit timings to allow bitrate setting */
-static const struct can_bittiming_const elmcan_bittiming_const = {
-	.name = "elmcan",
-	.tseg1_min = 1,
-	.tseg1_max = 1,
-	.tseg2_min = 0,
-	.tseg2_max = 0,
-	.sjw_max = 1,
-	.brp_min = 1,
-	.brp_max = 500,
-	.brp_inc = 1,
+/* ELM327 can only handle bitrates that are integer divisors of 500 kHz,
+ * or 7/8 of that. Divisors are 1 to 64.
+ * Currently we don't implement support for 7/8 rates.
+ */
+static const u32 elmcan_bitrate_const[64] = {
+	7812, 7936, 8064, 8196, 8333, 8474, 8620, 8771,
+	8928, 9090, 9259, 9433, 9615, 9803, 10000, 10204,
+	10416, 10638, 10869, 11111, 11363, 11627, 11904, 12195,
+	12500, 12820, 13157, 13513, 13888, 14285, 14705, 15151,
+	15625, 16129, 16666, 17241, 17857, 18518, 19230, 20000,
+	20833, 21739, 22727, 23809, 25000, 26315, 27777, 29411,
+	31250, 33333, 35714, 38461, 41666, 45454, 50000, 55555,
+	62500, 71428, 83333, 100000, 125000, 166666, 250000, 500000
 };
+
+/* Dummy function to claim we're changing the bitrate.
+ * We actually do this when opening the net device.
+ */
+static int elmcan_do_set_bittiming(struct net_device *netdev)
+{
+	return 0;
+}
+
 
 /*
  * Open the high-level part of the elmcan channel.
@@ -1085,8 +1096,9 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 
 	/* Configure CAN metadata */
 	elm->can.state = CAN_STATE_STOPPED;
-	elm->can.clock.freq = 1000000;
-	elm->can.bittiming_const = &elmcan_bittiming_const;
+	elm->can.bitrate_const = elmcan_bitrate_const;
+	elm->can.bitrate_const_cnt = ARRAY_SIZE(elmcan_bitrate_const);
+	elm->can.do_set_bittiming = elmcan_do_set_bittiming;
 	elm->can.ctrlmode_supported = CAN_CTRLMODE_LISTENONLY;
 
 	/* Configure netlink interface */
