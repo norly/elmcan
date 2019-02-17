@@ -579,6 +579,8 @@ static void elm327_handle_prompt(struct elmcan *elm)
 			 */
 			elm->state = ELM_NOTINIT;
 			elm327_kick_into_cmd_mode(elm);
+
+			return;
 		} else if (test_and_clear_bit(ELM_TODO_SILENT_MONITOR, &elm->cmds_todo)) {
 			snprintf(txbuf, sizeof(txbuf), "ATCSM%i\r", !(!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)));
 		} else if (test_and_clear_bit(ELM_TODO_RESPONSES, &elm->cmds_todo)) {
