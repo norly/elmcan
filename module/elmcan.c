@@ -945,6 +945,14 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 	if (!elm)
 		return;
 
+	spin_lock_bh(&elm->lock);
+	if (elm->hw_failure) {
+		spin_unlock_bh(&elm->lock);
+
+		put_elm(elm);
+		return;
+	}
+
 	/* Read the characters out of the buffer */
 	while (count-- && elm->rxfill < sizeof(elm->rxbuf)) {
 		if (fp && *fp++) {
@@ -966,7 +974,6 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 	if (count >= 0) {
 		netdev_err(elm->dev, "Receive buffer overflowed. Bad chip or wiring?");
 
-		spin_lock_bh(&elm->lock);
 		elm327_hw_failure(elm);
 		spin_unlock_bh(&elm->lock);
 
@@ -974,7 +981,6 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		return;
 	}
 
-	spin_lock_bh(&elm->lock);
 	elm327_parse_rxbuf(elm);
 	spin_unlock_bh(&elm->lock);
 
