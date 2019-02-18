@@ -84,7 +84,7 @@ The line discipline can be attached on a command prompt as follows::
            --noparity \
            --onestopbit \
            --iflag -ICRNL,INLCR,-IXOFF \
-           26 \
+           29 \
            /dev/ttyUSB0
 
 To change the ELM327's serial settings, please refer to its data
