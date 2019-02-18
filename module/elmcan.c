@@ -673,7 +673,8 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 				elm->state = ELM_GETPROMPT;
 				i++;
 				break;
-			} else if (elm->rxbuf[i] == ELM327_READY_CHAR) {
+			} else if ((elm->rxbuf[i] & 0x3f) == ELM327_READY_CHAR) {
+				/* Mask 0xc0 to work around hardware bugs */
 				elm327_send(elm, ELM327_MAGIC_STRING, 1);
 				i++;
 				break;
@@ -686,8 +687,11 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 	}
 
 	case ELM_GETPROMPT:
-		/* Wait for '>' */
-		if (elm->rxbuf[elm->rxfill - 1] == ELM327_READY_CHAR) {
+		/* Wait for '>'.
+		 * Bits 0xc0 are sometimes set (randomly), hence the mask.
+		 * Probably bad hardware.
+		 */
+		if ((elm->rxbuf[elm->rxfill - 1] & 0x3f) == ELM327_READY_CHAR) {
 			elm327_handle_prompt(elm);
 		}
 
