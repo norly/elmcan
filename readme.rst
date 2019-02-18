@@ -241,8 +241,8 @@ For this to function, the controller must be configured for 11 bit CAN
 ID sending mode (using "``AT PB``", see code or datasheet).
 
 
-Once a frame has been sent and wait-for-reply mode is on (ATR1,
-configured on listen-only=off), or when the reply timeout expires and
+Once a frame has been sent and wait-for-reply mode is on (``ATR1``,
+configured on ``listen-only=off``), or when the reply timeout expires and
 the driver sets the controller into monitoring mode (``ATMA``), the ELM327
 will send one line for each received CAN frame, consisting of CAN ID,
 DLC, and data::
@@ -265,6 +265,31 @@ error message may appear on the same line as the last (usually
 incomplete) data frame::
 
     12 34 56 78 8 DEADBEEF123 BUFFER FULL
+
+
+
+Rationale behind the chosen configuration
+------------------------------------------
+
+``AT E1``
+  Echo on
+
+  We need this to be able to get a prompt reliably.
+
+``AT S1``
+  Spaces on
+
+  We need this to distinguish 11/29 bit CAN addresses received.
+
+  Note:
+  We can usually do this using the line length (odd/even),
+  but this fails if the line is not transmitted fully to
+  the host (BUFFER FULL).
+
+``AT D1``
+  DLC on
+
+  We need this to tell the "length" of RTR frames.
 
 
 
