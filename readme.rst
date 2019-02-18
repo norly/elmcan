@@ -95,6 +95,22 @@ sheet. This needs to be done before attaching the line discipline.
 Known limitations of the controller
 ------------------------------------
 
+- Clone "v1.5" devices
+
+  Sending RTR frames is not supported and will be dropped silently.
+
+  Receiving RTR with DLC 8 will appear to be a regular frame with
+  the last received frame's DLC and payload.
+
+  "``AT CSM``" not supported, thus no ACK-ing frames while listening:
+  "``AT MA``" will always be silent. However, immediately after
+  sending a frame, the ELM327 will be in "receive reply" mode, in
+  which it *does* ACK any received frames. Once the bus goes silent
+  or an error occurs (such as BUFFER FULL), the ELM327 will end reply
+  reception mode on its own and elmcan will fall back to "``AT MA``"
+  in order to keep monitoring the bus.
+
+
 - All versions
 
   No automatic full duplex operation is supported. The driver will
