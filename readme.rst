@@ -92,6 +92,21 @@ sheet. This needs to be done before attaching the line discipline.
 
 
 
+Module parameters
+------------------
+
+- ``accept_flaky_uart`` - Try to live with a bad controller or UART line
+
+	Some adapters and/or their connection are unreliable. Enable this
+	option to try and work around the situation. This is a best-effort
+	workaround, so undefined behavior will likely occur sooner or later.
+
+	LOAD TIME::
+
+		module/kernel parameter: accept_flaky_uart=[0|1]
+
+
+
 Known limitations of the controller
 ------------------------------------
 

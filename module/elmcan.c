@@ -22,6 +22,7 @@
 
 #include <linux/atomic.h>
 #include <linux/bitops.h>
+#include <linux/ctype.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/if_ether.h>
@@ -44,6 +45,16 @@ MODULE_ALIAS_LDISC(N_ELMCAN);
 MODULE_DESCRIPTION("ELM327 based CAN interface");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
+
+/* If this is enabled, we'll try to make the best of the situation
+ * even if we receive unexpected characters on the line.
+ * No guarantees.
+ * Handle with care, it's likely your hardware is unreliable!
+ */
+static bool accept_flaky_uart = false;
+module_param_named(accept_flaky_uart, accept_flaky_uart, bool, 0444);
+MODULE_PARM_DESC(accept_flaky_uart, "Don't bail at the first invalid character. Behavior undefined.");
+
 
 /* Line discipline ID number */
 #ifndef N_ELMCAN
@@ -193,7 +204,6 @@ static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 		elm327_send(elm, ELM327_MAGIC_STRING, 1);
 
 		elm->state = ELM_GETMAGICCHAR;
-		elm->rxfill = 0;
 	}
 }
 
@@ -361,6 +371,12 @@ static inline void elm327_hw_failure(struct elmcan *elm)
   * (assumes elm->lock taken)					*
   ************************************************************************/
 
+static bool elm327_is_ready_char(char c)
+{
+	return (c & 0x3f) == ELM327_READY_CHAR;
+}
+
+
 static void elm327_parse_error(struct elmcan *elm, int len)
 {
 	struct can_frame frame;
@@ -440,6 +456,23 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 		    && elm->rxbuf[hexlen] != ' ') {
 			break;
 		}
+	}
+
+	/* If we accept stray characters coming in:
+	 * Check for stray characters on a payload line.
+	 * No idea what causes this.
+	 */
+	if (accept_flaky_uart
+	    && hexlen < len
+	    && !isdigit(elm->rxbuf[hexlen])
+	    && !isupper(elm->rxbuf[hexlen])
+	    && '<' != elm->rxbuf[hexlen]
+	    && ' ' != elm->rxbuf[hexlen]) {
+		/* The line is likely garbled anyway, so bail.
+		 * The main code will restart listening.
+		 */
+		elm327_kick_into_cmd_mode(elm);
+		return 3;
 	}
 
 	/* Use spaces in CAN ID to distinguish 29 or 11 bit address length.
@@ -554,8 +587,8 @@ static void elm327_parse_line(struct elmcan *elm, int len)
 				/* Parse an error line. */
 				elm327_parse_error(elm, len);
 
-				/* After the error line, we expect a prompt. */
-				elm->state = ELM_GETPROMPT;
+				/* Start afresh. */
+				elm327_kick_into_cmd_mode(elm);
 			}
 			break;
 		default:
@@ -673,7 +706,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 				elm->state = ELM_GETPROMPT;
 				i++;
 				break;
-			} else if ((elm->rxbuf[i] & 0x3f) == ELM327_READY_CHAR) {
+			} else if (elm327_is_ready_char(elm->rxbuf[i])) {
 				/* Mask 0xc0 to work around hardware bugs */
 				elm327_send(elm, ELM327_MAGIC_STRING, 1);
 				i++;
@@ -691,7 +724,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 		 * Bits 0xc0 are sometimes set (randomly), hence the mask.
 		 * Probably bad hardware.
 		 */
-		if ((elm->rxbuf[elm->rxfill - 1] & 0x3f) == ELM327_READY_CHAR) {
+		if (elm327_is_ready_char(elm->rxbuf[elm->rxfill - 1])) {
 			elm327_handle_prompt(elm);
 		}
 
@@ -715,7 +748,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			return;
 		} else if (len == elm->rxfill) {
 			if (elm->state == ELM_RECEIVING
-				&& elm->rxbuf[elm->rxfill - 1] == ELM327_READY_CHAR) {
+				&& elm327_is_ready_char(elm->rxbuf[elm->rxfill - 1])) {
 				/* The ELM327's AT ST response timeout ran out,
 				 * so we got a prompt.
 				 * Clear RX buffer and restart listening.
@@ -965,9 +998,46 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 			put_elm(elm);
 			return;
 		}
+
+		/* Ignore NUL characters, which the PIC microcontroller may
+		 * inadvertently insert due to a known hardware bug.
+		 * See ELM327 documentation, which refers to a Microchip PIC
+		 * bug description.
+		 */
 		if (*cp != 0) {
+			/* Check for stray characters on the UART line.
+			 * No idea what causes this.
+			 */
+			if (!accept_flaky_uart
+			    && !isdigit(*cp)
+			    && !isupper(*cp)
+			    && ELM327_MAGIC_CHAR != *cp
+			    && ELM327_READY_CHAR != *cp
+			    && '<' != *cp
+			    && 'a' != *cp
+			    && 'b' != *cp
+			    && 'v' != *cp
+			    && '.' != *cp
+			    && '?' != *cp
+			    && '\r' != *cp
+			    && ' ' != *cp) {
+				/* We've received an invalid character, so bail.
+				 * There's something wrong with the ELM327, or
+				 * with the UART line.
+				 */
+				netdev_err(elm->dev,
+					"Received illegal character %02x.\n",
+					*cp);
+				elm327_hw_failure(elm);
+				spin_unlock_bh(&elm->lock);
+
+				put_elm(elm);
+				return;
+			}
+
 			elm->rxbuf[elm->rxfill++] = *cp;
 		}
+
 		cp++;
 	}
 
