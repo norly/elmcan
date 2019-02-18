@@ -170,11 +170,6 @@ Known limitations of the driver
   helpful here, however SocketCAN does not currently provide a facility
   to make use of such hardware features.
 
-- No BUS-OFF state and automatic restart
-
-  We currently reset the ELM327 and generate error frames manually.
-  In the future, we may be able to use ``can_bus_off()`` and its siblings.
-
 
 
 Communication example
