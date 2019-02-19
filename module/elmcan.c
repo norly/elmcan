@@ -4,7 +4,7 @@
  *
  * This file is derived from linux/drivers/net/can/slcan.c
  *
- * elmcan.c Author : Max Staudt <elmcan@enpas.org>
+ * elmcan.c Author : Max Staudt <max-linux@enpas.org>
  * slcan.c Author  : Oliver Hartkopp <socketcan@hartkopp.net>
  * slip.c Authors  : Laurence Culhane <loz@holmes.demon.co.uk>
  *                   Fred N. van Kempen <waltje@uwalt.nl.mugnet.org>

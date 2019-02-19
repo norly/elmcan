@@ -4,7 +4,7 @@ Linux SocketCAN driver for ELM327
 Authors
 --------
 
-Max Staudt <elmcan@enpas.org>
+Max Staudt <max-linux@enpas.org>
 
 
 
