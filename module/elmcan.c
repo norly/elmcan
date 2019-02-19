@@ -874,7 +874,7 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 	/* We shouldn't get here after a hardware fault:
 	 * can_bus_off() calls netif_carrier_off()
 	 */
-	BUG_ON(elm->hw_failure);
+	WARN_ON(elm->hw_failure);
 
 	if (elm->tty == NULL
 		|| elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY) {
