@@ -618,21 +618,13 @@ static void elm327_handle_prompt(struct elmcan *elm)
 
 	/* Reconfigure ELM327 step by step as indicated by elm->cmds_todo */
 	if (test_bit(ELM_TODO_INIT, &elm->cmds_todo)) {
-		elm327_send(elm, *elm->next_init_cmd, strlen(*elm->next_init_cmd));
+		strcpy(local_txbuf, *elm->next_init_cmd);
+
 		elm->next_init_cmd++;
 		if (!(*elm->next_init_cmd)) {
 			clear_bit(ELM_TODO_INIT, &elm->cmds_todo);
 			netdev_info(elm->dev, "Initialization finished.\n");
 		}
-
-		/* Some chips are unreliable and need extra time after
-		 * init commands, as seen with a clone.
-		 * So let's do a dummy get-cmd-prompt dance.
-		 */
-		elm->state = ELM_NOTINIT;
-		elm327_kick_into_cmd_mode(elm);
-
-		return;
 
 	} else if (test_and_clear_bit(ELM_TODO_SILENT_MONITOR, &elm->cmds_todo)) {
 		sprintf(local_txbuf, "ATCSM%i\r",
