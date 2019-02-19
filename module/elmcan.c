@@ -993,7 +993,6 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		if (fp && *fp++) {
 			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
 
-			spin_lock_bh(&elm->lock);
 			elm327_hw_failure(elm);
 			spin_unlock_bh(&elm->lock);
 
