@@ -1273,13 +1273,15 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
 			unsigned int cmd, unsigned long arg)
 {
 	struct elmcan *elm = get_elm(tty);
+	unsigned int tmp;
 
 	if (!elm)
 		return -EINVAL;
 
 	switch (cmd) {
 	case SIOCGIFNAME:
-		if (copy_to_user((void __user *)arg, elm->dev->name, IFNAMSIZ)) {
+		tmp = strnlen(elm->dev->name, IFNAMSIZ - 1) + 1;
+		if (copy_to_user((void __user *)arg, elm->dev->name, tmp)) {
 			put_elm(elm);
 			return -EFAULT;
 		}
