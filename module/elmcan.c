@@ -374,15 +374,6 @@ static inline void elm327_hw_failure(struct elmcan *elm)
   * (assumes elm->lock taken)					*
   ************************************************************************/
 
-static bool elm327_is_ready_char(char c)
-{
-	/* Bits 0xc0 are sometimes set (randomly), hence the mask.
-	 * Probably bad hardware.
-	 */
-	return (c & 0x3f) == ELM327_READY_CHAR;
-}
-
-
 static void elm327_parse_error(struct elmcan *elm, int len)
 {
 	struct can_frame frame;
@@ -677,6 +668,15 @@ static void elm327_handle_prompt(struct elmcan *elm)
 	}
 
 	elm327_send(elm, local_txbuf, strlen(local_txbuf));
+}
+
+
+static bool elm327_is_ready_char(char c)
+{
+	/* Bits 0xc0 are sometimes set (randomly), hence the mask.
+	 * Probably bad hardware.
+	 */
+	return (c & 0x3f) == ELM327_READY_CHAR;
 }
 
 
