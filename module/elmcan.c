@@ -194,11 +194,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 }
 
 
-/*
- * Take the ELM327 out of almost any state and back into command mode
- *
- * Assumes elm->lock taken.
- */
+/* Take the ELM327 out of almost any state and back into command mode. */
 static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 {
 	if (elm->state != ELM_GETMAGICCHAR && elm->state != ELM_GETPROMPT) {
@@ -209,12 +205,7 @@ static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 }
 
 
-/*
- * Schedule a CAN frame, and any necessary config changes,
- * to be sent down the TTY.
- *
- * Assumes elm->lock taken.
- */
+/* Schedule a CAN frame and necessary config changes to be sent to the TTY. */
 static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 {
 	/* Schedule any necessary changes in ELM327's CAN configuration */
@@ -393,8 +384,8 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 		if (!memcmp(elm->rxbuf, "BUFFER FULL", 11)) {
 			/* This case will only happen if the last data
 			 * line was complete.
-			 * Otherwise, elm327_parse_frame() will emit the
-			 * error frame instead.
+			 * Otherwise, elm327_parse_frame() will heuristically
+			 * emit this error frame instead.
 			 */
 			frame.can_id |= CAN_ERR_CRTL;
 			frame.data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
@@ -434,6 +425,18 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 }
 
 
+/* Parse CAN frames coming as ASCII from ELM327.
+ * They can be of various formats:
+ *
+ * 29-bit ID (EFF):  12 34 56 78 D PL PL PL PL PL PL PL PL
+ * 11-bit ID (!EFF): 123 D PL PL PL PL PL PL PL PL
+ *
+ * where D = DLC, PL = payload byte
+ *
+ * Instead of a payload, RTR indicates a remote request.
+ *
+ * We will use the spaces and line length to guess the format.
+ */
 static int elm327_parse_frame(struct elmcan *elm, int len)
 {
 	struct can_frame frame;
@@ -523,13 +526,13 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 
 	/* Check for RTR frame */
 	if (elm->rxfill >= hexlen + 3
-	    && elm->rxbuf[hexlen + 0] == 'R'
-	    && elm->rxbuf[hexlen + 1] == 'T'
-	    && elm->rxbuf[hexlen + 2] == 'R') {
+	    && !memcmp(&elm->rxbuf[hexlen], "RTR", 3)) {
 		frame.can_id |= CAN_RTR_FLAG;
 	}
 
-	/* Is the line long enough to hold the advertised payload? */
+	/* Is the line long enough to hold the advertised payload?
+	 * Note: RTR frames have a DLC, but no actual payload.
+	 */
 	if (!(frame.can_id & CAN_RTR_FLAG)
 	    && (hexlen < frame.can_dlc * 3 + datastart)) {
 		/* Incomplete frame. */
@@ -592,7 +595,6 @@ static void elm327_parse_line(struct elmcan *elm, int len)
 		break;
 	}
 }
-
 
 static void elm327_handle_prompt(struct elmcan *elm)
 {
@@ -679,13 +681,11 @@ static bool elm327_is_ready_char(char c)
 	return (c & 0x3f) == ELM327_READY_CHAR;
 }
 
-
 static void elm327_drop_bytes(struct elmcan *elm, int i)
 {
 	memmove(&elm->rxbuf[0], &elm->rxbuf[i], sizeof(elm->rxbuf) - i);
 	elm->rxfill -= i;
 }
-
 
 static void elm327_parse_rxbuf(struct elmcan *elm)
 {
@@ -783,7 +783,6 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
   * (takes elm->lock)						*
   ************************************************************************/
 
-/* Netdevice DOWN -> UP routine */
 static int elmcan_netdev_open(struct net_device *dev)
 {
 	struct elmcan *elm = netdev_priv(dev);
@@ -808,7 +807,6 @@ static int elmcan_netdev_open(struct net_device *dev)
 		return err;
 	}
 
-	/* Initialize the ELM327 */
 	elm327_init(elm);
 	spin_unlock_bh(&elm->lock);
 
@@ -819,15 +817,12 @@ static int elmcan_netdev_open(struct net_device *dev)
 	return 0;
 }
 
-/* Netdevice UP -> DOWN routine */
 static int elmcan_netdev_close(struct net_device *dev)
 {
 	struct elmcan *elm = netdev_priv(dev);
 
 	spin_lock_bh(&elm->lock);
 	if (elm->tty) {
-		/* TTY discipline is running. */
-
 		/* Interrupt whatever we're doing right now */
 		elm327_send(elm, ELM327_MAGIC_STRING, 1);
 
@@ -851,7 +846,7 @@ static int elmcan_netdev_close(struct net_device *dev)
 	return 0;
 }
 
-/* Send a can_frame to a TTY queue. */
+/* Send a can_frame to a TTY. */
 static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 					    struct net_device *dev)
 {
@@ -877,6 +872,7 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 	WARN_ON(elm->hw_failure);
 
 	if (elm->tty == NULL
+		|| elm->hw_failure
 		|| elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY) {
 		spin_unlock(&elm->lock);
 		goto out;
@@ -919,19 +915,17 @@ static const struct net_device_ops elmcan_netdev_ops = {
   * (takes elm->lock)						*
   ************************************************************************/
 
-/*
- * Get a reference to our struct, taking into account locks/refcounts.
+/* Get a reference to our struct, taking into account locks/refcounts.
  * This is to ensure ordering in case we are shutting down, and to ensure
- * there is a refcount at all (because tty->disc_data may be NULL).
+ * there is a refcount at all (otherwise tty->disc_data may be freed and
+ * before we increment the refcount).
+ * Use this for anything that can race against elmcan_ldisc_close().
  */
 static struct elmcan *get_elm(struct tty_struct *tty)
 {
 	struct elmcan *elm;
 	bool got_ref;
 
-	/* Lock all elmcan TTYs, so tty->disc_data can't become NULL
-	 * the moment before we increase the reference counter.
-	 */
 	spin_lock_bh(&elmcan_discdata_lock);
 	elm = (struct elmcan *) tty->disc_data;
 
@@ -955,14 +949,9 @@ static void put_elm(struct elmcan *elm)
 }
 
 
-
-/*
- * Handle the 'receiver data ready' interrupt.
- * This function is called by the 'tty_io' module in the kernel when
- * a block of ELM327 CAN data has been received, which can now be parsed
- * and sent on to some IP layer for further processing. This will not
- * be re-entered while running but other ldisc functions may be called
- * in parallel
+/* Handle incoming ELM327 ASCII data.
+ * This will not be re-entered while running, but other ldisc
+ * functions may be called in parallel.
  */
 static void elmcan_ldisc_rx(struct tty_struct *tty,
 			const unsigned char *cp, char *fp, int count)
@@ -980,7 +969,6 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		return;
 	}
 
-	/* Read the characters out of the buffer */
 	while (count-- && elm->rxfill < sizeof(elm->rxbuf)) {
 		if (fp && *fp++) {
 			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
@@ -999,7 +987,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		 */
 		if (*cp != 0) {
 			/* Check for stray characters on the UART line.
-			 * No idea what causes this.
+			 * Likely caused by bad hardware.
 			 */
 			if (!accept_flaky_uart
 			    && !isdigit(*cp)
@@ -1014,10 +1002,6 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 			    && '?' != *cp
 			    && '\r' != *cp
 			    && ' ' != *cp) {
-				/* We've received an invalid character, so bail.
-				 * There's something wrong with the ELM327, or
-				 * with the UART line.
-				 */
 				netdev_err(elm->dev,
 					   "Received illegal character %02x.\n",
 					   *cp);
@@ -1050,14 +1034,14 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 	put_elm(elm);
 }
 
-/*
- * Write out remaining transmit buffer.
+
+/* Write out remaining transmit buffer.
  * Scheduled when TTY is writable.
  */
 static void elmcan_ldisc_tx_worker(struct work_struct *work)
 {
 	/* No need to use get_elm() here, as we'll always flush workers
-	 * befory destroying the elmcan object.
+	 * before destroying the elmcan object.
 	 */
 	struct elmcan *elm = container_of(work, struct elmcan, tx_work);
 	ssize_t actual;
@@ -1075,7 +1059,7 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 
 	if (elm->txleft <= 0)  {
 		/* Our TTY write buffer is empty:
-		 * We can start transmission of another packet
+		 * Allow netdev to hand us another packet
 		 */
 		clear_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 		spin_unlock_bh(&elm->lock);
@@ -1098,11 +1082,7 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 	spin_unlock_bh(&elm->lock);
 }
 
-
-/*
- * Called by the driver when there's room for more data.
- * Schedule the transmit.
- */
+/* Called by the driver when there's room for more data. */
 static void elmcan_ldisc_tx_wakeup(struct tty_struct *tty)
 {
 	struct elmcan *elm = get_elm(tty);
@@ -1114,7 +1094,6 @@ static void elmcan_ldisc_tx_wakeup(struct tty_struct *tty)
 
 	put_elm(elm);
 }
-
 
 
 /* ELM327 can only handle bitrates that are integer divisors of 500 kHz,
@@ -1132,22 +1111,14 @@ static const u32 elmcan_bitrate_const[64] = {
 	62500, 71428, 83333, 100000, 125000, 166666, 250000, 500000
 };
 
-/* Dummy function to claim we're changing the bitrate.
- * We actually do this when opening the net device.
- */
+
+/* Dummy needed to use bitrate_const */
 static int elmcan_do_set_bittiming(struct net_device *netdev)
 {
 	return 0;
 }
 
 
-/*
- * Open the high-level part of the elmcan channel.
- * This function is called by the TTY module when the
- * elmcan line discipline is called for.
- *
- * Called in process context serialized from other ldisc calls.
- */
 static int elmcan_ldisc_open(struct tty_struct *tty)
 {
 	struct net_device *dev;
@@ -1161,7 +1132,6 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 		return -EOPNOTSUPP;
 
 
-	/* OK.  Find a free elmcan channel to use. */
 	dev = alloc_candev(sizeof(struct elmcan), 0);
 	if (!dev)
 		return -ENFILE;
@@ -1203,8 +1173,7 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	return 0;
 }
 
-/*
- * Close down an elmcan channel.
+/* Close down an elmcan channel.
  * This means flushing out any pending queues, and then returning.
  * This call is serialized against other ldisc functions:
  * Once this is called, no other ldisc function of ours is entered.
@@ -1213,15 +1182,12 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
  */
 static void elmcan_ldisc_close(struct tty_struct *tty)
 {
-	/* Use get_elm() to synchronize against other users */
 	struct elmcan *elm = get_elm(tty);
 
 	if (!elm)
 		return;
 
-	/* Tear down network side.
-	 * unregister_netdev() calls .ndo_stop() so we don't have to.
-	 */
+	/* unregister_netdev() calls .ndo_stop() so we don't have to. */
 	unregister_candev(elm->dev);
 
 	/* Decrease the refcount twice, once for our own get_elm(),
@@ -1231,13 +1197,10 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 	put_elm(elm);
 	put_elm(elm);
 
-	/* Spin until refcount reaches 0 */
 	while (atomic_read(&elm->refcount) > 0)
 		msleep_interruptible(10);
 
-	/* At this point, all ldisc calls to us will be no-ops.
-	 * Since the refcount is 0, they are bailing immediately.
-	 */
+	/* At this point, all ldisc calls to us have become no-ops. */
 
 	/* Mark channel as dead */
 	spin_lock_bh(&elm->lock);
@@ -1245,12 +1208,10 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 	elm->tty = NULL;
 	spin_unlock_bh(&elm->lock);
 
-	/* Flush TTY side */
 	flush_work(&elm->tx_work);
 
 	netdev_info(elm->dev, "elmcan off %s.\n", tty->name);
 
-	/* Free our memory */
 	free_candev(elm->dev);
 }
 
@@ -1260,7 +1221,6 @@ static int elmcan_ldisc_hangup(struct tty_struct *tty)
 	return 0;
 }
 
-/* Perform I/O control on an active elmcan channel. */
 static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
 			unsigned int cmd, unsigned long arg)
 {
@@ -1318,7 +1278,6 @@ static int __init elmcan_init(void)
 	pr_info("ELM327 based best-effort CAN interface driver\n");
 	pr_info("This device is severely limited as a CAN interface, see documentation.\n");
 
-	/* Fill in our line protocol discipline, and register it */
 	status = tty_register_ldisc(N_ELMCAN, &elmcan_ldisc);
 	if (status)
 		pr_err("can't register line discipline\n");
