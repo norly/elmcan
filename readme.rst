@@ -26,7 +26,7 @@ This driver is an effort to turn abundant ELM327 based OBD interfaces
 into full-fledged (as far as possible) CAN interfaces.
 
 Since the ELM327 was never meant to be a stand-alone CAN controller,
-the driver has to switch between its modes asa quickly as possible in
+the driver has to switch between its modes as quickly as possible in
 order to approximate full-duplex operation.
 
 As such, elmcan is a best-effort driver. However, this is more than
@@ -308,9 +308,23 @@ Rationale behind the chosen configuration
 
 
 
+A note on CAN bus termination
+------------------------------
+
+Your adapter may have resistors soldered in which are meant to terminate
+the bus. This is correct when it is plugged into a OBD-II socket, but
+not helpful when trying to tap into the middle of an existing CAN bus.
+
+If communications don't work with the adapter connected, check for the
+termination resistors on its PCB and try removing them.
+
+
+
 To Do list for future development
 ----------------------------------
 
 - DMA capable rx/tx buffers
+  (is this relevant for this driver?)
 
 - flushing of ``tx_work`` is too late in ``ldisc_close()``
+  (is this still the case?)
