@@ -43,6 +43,13 @@ known limitations in older controllers and clones.
 
 
 
+Requirements
+-------------
+
+This requires Linux 4.11 (for 431af779256c), and has been tested on 4.19.
+
+
+
 Data sheet
 -----------
 
