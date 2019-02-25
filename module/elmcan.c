@@ -694,7 +694,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 	switch (elm->state) {
 	case ELM_NOTINIT:
 		elm->rxfill = 0;
-		return;
+		break;
 
 	case ELM_GETMAGICCHAR:
 	{
@@ -716,7 +716,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 
 		elm327_drop_bytes(elm, i);
 
-		return;
+		break;
 	}
 
 	case ELM_GETPROMPT:
@@ -725,7 +725,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			elm327_handle_prompt(elm);
 
 		elm->rxfill = 0;
-		return;
+		break;
 
 	case ELM_RECEIVING:
 		/* Find <CR> delimiting feedback lines. */
@@ -742,7 +742,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			netdev_err(elm->dev,
 				"RX buffer overflow. Faulty ELM327 or UART?\n");
 			elm327_hw_failure(elm);
-			return;
+			break;
 		} else if (len == elm->rxfill) {
 			if (elm327_is_ready_char(elm->rxbuf[elm->rxfill - 1])) {
 				/* The ELM327's AT ST response timeout ran out,
@@ -752,13 +752,13 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 				elm->rxfill = 0;
 
 				elm327_handle_prompt(elm);
-				return;
+				break;
 			}
 
 			/* No <CR> found - we haven't received a full line yet.
 			 * Wait for more data.
 			 */
-			return;
+			break;
 		}
 
 		/* We have a full line to parse. */
@@ -958,11 +958,9 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		return;
 
 	spin_lock_bh(&elm->lock);
-	if (elm->hw_failure) {
-		spin_unlock_bh(&elm->lock);
 
-		put_elm(elm);
-		return;
+	if (elm->hw_failure) {
+		goto out;
 	}
 
 	while (count-- && elm->rxfill < sizeof(elm->rxbuf)) {
@@ -970,10 +968,8 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
 
 			elm327_hw_failure(elm);
-			spin_unlock_bh(&elm->lock);
 
-			put_elm(elm);
-			return;
+			goto out;
 		}
 
 		/* Ignore NUL characters, which the PIC microcontroller may
@@ -1002,10 +998,8 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 					   "Received illegal character %02x.\n",
 					   *cp);
 				elm327_hw_failure(elm);
-				spin_unlock_bh(&elm->lock);
 
-				put_elm(elm);
-				return;
+				goto out;
 			}
 
 			elm->rxbuf[elm->rxfill++] = *cp;
@@ -1018,15 +1012,14 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		netdev_err(elm->dev, "Receive buffer overflowed. Bad chip or wiring?");
 
 		elm327_hw_failure(elm);
-		spin_unlock_bh(&elm->lock);
 
-		put_elm(elm);
-		return;
+		goto out;
 	}
 
 	elm327_parse_rxbuf(elm);
-	spin_unlock_bh(&elm->lock);
 
+out:
+	spin_unlock_bh(&elm->lock);
 	put_elm(elm);
 }
 
