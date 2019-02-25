@@ -893,16 +893,12 @@ out:
 	return NETDEV_TX_OK;
 }
 
-static int elmcan_netdev_change_mtu(struct net_device *dev, int new_mtu)
-{
-	return -EINVAL;
-}
 
 static const struct net_device_ops elmcan_netdev_ops = {
 	.ndo_open	= elmcan_netdev_open,
 	.ndo_stop	= elmcan_netdev_close,
 	.ndo_start_xmit	= elmcan_netdev_start_xmit,
-	.ndo_change_mtu	= elmcan_netdev_change_mtu,
+	.ndo_change_mtu	= can_change_mtu,
 };
 
 
