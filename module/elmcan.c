@@ -949,6 +949,23 @@ static void put_elm(struct elmcan *elm)
 }
 
 
+static bool elmcan_is_valid_rx_char(char c)
+{
+	return (accept_flaky_uart
+		|| isdigit(c)
+		|| isupper(c)
+		|| ELM327_MAGIC_CHAR == c
+		|| ELM327_READY_CHAR == c
+		|| '<' == c
+		|| 'a' == c
+		|| 'b' == c
+		|| 'v' == c
+		|| '.' == c
+		|| '?' == c
+		|| '\r' == c
+		|| ' ' == c);
+}
+
 /* Handle incoming ELM327 ASCII data.
  * This will not be re-entered while running, but other ldisc
  * functions may be called in parallel.
@@ -985,19 +1002,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 			/* Check for stray characters on the UART line.
 			 * Likely caused by bad hardware.
 			 */
-			if (!accept_flaky_uart
-			    && !isdigit(*cp)
-			    && !isupper(*cp)
-			    && ELM327_MAGIC_CHAR != *cp
-			    && ELM327_READY_CHAR != *cp
-			    && '<' != *cp
-			    && 'a' != *cp
-			    && 'b' != *cp
-			    && 'v' != *cp
-			    && '.' != *cp
-			    && '?' != *cp
-			    && '\r' != *cp
-			    && ' ' != *cp) {
+			if (!elmcan_is_valid_rx_char(*cp)) {
 				netdev_err(elm->dev,
 					   "Received illegal character %02x.\n",
 					   *cp);
