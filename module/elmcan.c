@@ -194,7 +194,11 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 }
 
 
-/* Take the ELM327 out of almost any state and back into command mode. */
+/* Take the ELM327 out of almost any state and back into command mode.
+ * We send ELM327_MAGIC_CHAR which will either abort any running
+ * operation, or be echoed back to us in case we're already in command
+ * mode.
+ */
 static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 {
 	if (elm->state != ELM_GETMAGICCHAR && elm->state != ELM_GETPROMPT) {
@@ -1253,12 +1257,6 @@ static struct tty_ldisc_ops elmcan_ldisc = {
 };
 
 
-
-
-
- /************************************************************************
-  *		Module init/exit				*
-  ************************************************************************/
 
 static int __init elmcan_init(void)
 {
