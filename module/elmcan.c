@@ -1113,6 +1113,8 @@ static const u32 elmcan_bitrate_const[64] = {
 /* Dummy needed to use bitrate_const */
 static int elmcan_do_set_bittiming(struct net_device *netdev)
 {
+	(void)netdev;
+
 	return 0;
 }
 
