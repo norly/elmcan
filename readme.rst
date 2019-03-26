@@ -11,11 +11,12 @@ Max Staudt <max-linux@enpas.org>
 Motivation
 -----------
 
-CAN adapters are expensive, few, and far between.
-ELM327 interfaces are cheap and plentiful.
-
 This driver aims to lower the initial cost for hackers interested in
 working with CAN buses.
+
+CAN adapters are expensive, few, and far between.
+ELM327 interfaces are cheap and plentiful.
+Let's use ELM327s as CAN adapters.
 
 
 
@@ -27,7 +28,7 @@ into full-fledged (as far as possible) CAN interfaces.
 
 Since the ELM327 was never meant to be a stand-alone CAN controller,
 the driver has to switch between its modes as quickly as possible in
-order to approximate full-duplex operation.
+order to fake full-duplex operation.
 
 As such, elmcan is a best-effort driver. However, this is more than
 enough to implement simple request-response protocols (such as OBD II),
@@ -67,6 +68,7 @@ How to check the controller version
 ------------------------------------
 
 Use a terminal program to attach to the controller.
+The default settings are 38400 baud/s, 8 data bits, no parity, 1 stopbit.
 
 After issuing the "``AT WS``" command, the controller will respond with
 its version::
@@ -77,6 +79,9 @@ its version::
     ELM327 v1.4b
 
     >
+
+Note that clones may claim to be any version they like.
+It is not indicative of their actual feature set.
 
 
 
@@ -111,6 +116,8 @@ Module parameters
 	Some adapters and/or their connection are unreliable. Enable this
 	option to try and work around the situation. This is a best-effort
 	workaround, so undefined behavior will likely occur sooner or later.
+	Without this option, the driver will bail on the first unrecognized
+	character it receives from the TTY.
 
 	LOAD TIME::
 
@@ -121,7 +128,7 @@ Module parameters
 Known limitations of the controller
 ------------------------------------
 
-- Clone "v1.5" devices
+- Clone devices ("v1.5" and others)
 
   Sending RTR frames is not supported and will be dropped silently.
 
@@ -139,8 +146,8 @@ Known limitations of the controller
 
 - All versions
 
-  No automatic full duplex operation is supported. The driver will
-  switch between input/output mode as quickly as possible.
+  No full duplex operation is supported. The driver will switch
+  between input/output mode as quickly as possible.
 
   The length of outgoing RTR frames cannot be set. In fact, some
   clones (tested with one identifying as "``v1.5``") are unable to
