@@ -156,11 +156,11 @@ static inline void elm327_hw_failure(struct elmcan *elm);
 
 
 
- /************************************************************************
-  *		ELM327: Transmission				*
-  *								*
-  * (all functions assume elm->lock taken)			*
-  ************************************************************************/
+ /***********************************************************************
+  *		ELM327: Transmission					*
+  *									*
+  * (all functions assume elm->lock taken)				*
+  ***********************************************************************/
 
 static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 {
@@ -247,11 +247,11 @@ static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 
 
 
- /************************************************************************
-  *		ELM327: Initialization sequence			*
-  *								*
-  * (assumes elm->lock taken)					*
-  ************************************************************************/
+ /***********************************************************************
+  *		ELM327: Initialization sequence				*
+  *									*
+  * (assumes elm->lock taken)						*
+  ***********************************************************************/
 
 static char *elm327_init_script[] = {
 	"AT WS\r",        /* v1.0: Warm Start */
@@ -305,11 +305,11 @@ static void elm327_init(struct elmcan *elm)
 
 
 
- /************************************************************************
-  *		ELM327: Reception -> netdev glue		*
-  *								*
-  * (assumes elm->lock taken)					*
-  ************************************************************************/
+ /***********************************************************************
+  *		ELM327: Reception -> netdev glue			*
+  *									*
+  * (assumes elm->lock taken)						*
+  ***********************************************************************/
 
 static void elm327_feed_frame_to_netdev(struct elmcan *elm,
 					const struct can_frame *frame)
@@ -336,11 +336,11 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm,
 
 
 
- /************************************************************************
-  *		ELM327: "Panic" handler				*
-  *								*
-  * (assumes elm->lock taken)					*
-  ************************************************************************/
+ /***********************************************************************
+  *		ELM327: "Panic" handler					*
+  *									*
+  * (assumes elm->lock taken)						*
+  ***********************************************************************/
 
 /* Called when we're out of ideas and just want it all to end. */
 static inline void elm327_hw_failure(struct elmcan *elm)
@@ -781,11 +781,11 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 
 
 
- /************************************************************************
-  *		netdev						*
-  *								*
-  * (takes elm->lock)						*
-  ************************************************************************/
+ /***********************************************************************
+  *		netdev							*
+  *									*
+  * (takes elm->lock)							*
+  ***********************************************************************/
 
 static int elmcan_netdev_open(struct net_device *dev)
 {
@@ -909,11 +909,11 @@ static const struct net_device_ops elmcan_netdev_ops = {
 
 
 
- /************************************************************************
-  *		Line discipline					*
-  *								*
-  * (takes elm->lock)						*
-  ************************************************************************/
+ /***********************************************************************
+  *		Line discipline						*
+  *									*
+  * (takes elm->lock)							*
+  ***********************************************************************/
 
 /* Get a reference to our struct, taking into account locks/refcounts.
  * This is to ensure ordering in case we are shutting down, and to ensure
