@@ -60,6 +60,9 @@ MODULE_PARM_DESC(accept_flaky_uart, "Don't bail at the first invalid character. 
 #define N_ELMCAN 29
 #endif
 
+#define ELM327_SIZE_RXBUF 256
+#define ELM327_SIZE_TXBUF 32
+
 #define ELM327_CAN_CONFIG_SEND_SFF           0x8000
 #define ELM327_CAN_CONFIG_VARIABLE_DLC       0x4000
 #define ELM327_CAN_CONFIG_RECV_BOTH_SFF_EFF  0x2000
@@ -111,12 +114,12 @@ struct elmcan {
 
 	/* TTY TX helpers */
 	struct work_struct	tx_work;	/* Flushes TTY TX buffer   */
-	unsigned char		txbuf[32];
+	unsigned char		*txbuf;
 	unsigned char		*txhead;	/* Pointer to next TX byte */
 	int			txleft;		/* Bytes left to TX */
 
 	/* TTY RX helpers */
-	unsigned char rxbuf[256];
+	unsigned char *rxbuf;
 	int rxfill;
 
 	/* State machine */
@@ -687,7 +690,7 @@ static bool elm327_is_ready_char(char c)
 
 static void elm327_drop_bytes(struct elmcan *elm, int i)
 {
-	memmove(&elm->rxbuf[0], &elm->rxbuf[i], sizeof(elm->rxbuf) - i);
+	memmove(&elm->rxbuf[0], &elm->rxbuf[i], ELM327_SIZE_RXBUF - i);
 	elm->rxfill -= i;
 }
 
@@ -739,7 +742,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			/* empty loop */
 		}
 
-		if (len == sizeof(elm->rxbuf)) {
+		if (len == ELM327_SIZE_RXBUF) {
 			/* Line exceeds buffer. It's probably all garbage.
 			 * Did we even connect at the right baud rate?
 			 */
@@ -984,7 +987,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 		goto out;
 	}
 
-	while (count-- && elm->rxfill < sizeof(elm->rxbuf)) {
+	while (count-- && elm->rxfill < ELM327_SIZE_RXBUF) {
 		if (fp && *fp++) {
 			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
 
@@ -1137,6 +1140,13 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 		return -ENFILE;
 	elm = netdev_priv(dev);
 
+	elm->rxbuf = kmalloc(ELM327_SIZE_RXBUF, GFP_KERNEL);
+	elm->txbuf = kmalloc(ELM327_SIZE_TXBUF, GFP_KERNEL);
+	if (!elm->rxbuf || !elm->txbuf) {
+		err = -ENOMEM;
+		goto out_err;
+	}
+
 	/* Configure TTY interface */
 	tty->receive_room = 65536; /* We don't flow control */
 	elm->txleft = 0; /* Clear TTY TX buffer */
@@ -1163,14 +1173,20 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 
 	/* Let 'er rip */
 	err = register_candev(elm->dev);
-	if (err) {
-		free_candev(elm->dev);
-		return err;
-	}
+	if (err)
+		goto out_err;
 
 	netdev_info(elm->dev, "elmcan on %s.\n", tty->name);
 
 	return 0;
+
+out_err:
+	if (elm->txbuf)
+		kfree(elm->txbuf);
+	if (elm->rxbuf)
+		kfree(elm->rxbuf);
+	free_candev(elm->dev);
+	return err;
 }
 
 /* Close down an elmcan channel.
@@ -1212,6 +1228,8 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 
 	netdev_info(elm->dev, "elmcan off %s.\n", tty->name);
 
+	kfree(elm->txbuf);
+	kfree(elm->rxbuf);
 	free_candev(elm->dev);
 }
 

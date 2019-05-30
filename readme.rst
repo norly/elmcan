@@ -341,8 +341,5 @@ termination resistors on its PCB and try removing them.
 To Do list for future development
 ----------------------------------
 
-- DMA capable rx/tx buffers
-  (is this relevant for this driver?)
-
 - flushing of ``tx_work`` is too late in ``ldisc_close()``
   (is this still the case?)
