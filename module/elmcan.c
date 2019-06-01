@@ -119,7 +119,7 @@ struct elmcan {
 	int			txleft;		/* Bytes left to TX */
 
 	/* TTY RX helpers */
-	unsigned char *rxbuf;
+	unsigned char rxbuf[ELM327_SIZE_RXBUF];
 	int rxfill;
 
 	/* State machine */
@@ -1140,9 +1140,8 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 		return -ENFILE;
 	elm = netdev_priv(dev);
 
-	elm->rxbuf = kmalloc(ELM327_SIZE_RXBUF, GFP_KERNEL);
 	elm->txbuf = kmalloc(ELM327_SIZE_TXBUF, GFP_KERNEL);
-	if (!elm->rxbuf || !elm->txbuf) {
+	if (!elm->txbuf) {
 		err = -ENOMEM;
 		goto out_err;
 	}
@@ -1183,8 +1182,6 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 out_err:
 	if (elm->txbuf)
 		kfree(elm->txbuf);
-	if (elm->rxbuf)
-		kfree(elm->rxbuf);
 	free_candev(elm->dev);
 	return err;
 }
@@ -1229,7 +1226,6 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 	netdev_info(elm->dev, "elmcan off %s.\n", tty->name);
 
 	kfree(elm->txbuf);
-	kfree(elm->rxbuf);
 	free_candev(elm->dev);
 }
 
