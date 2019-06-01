@@ -366,11 +366,11 @@ static inline void elm327_hw_failure(struct elmcan *elm)
 
 
 
- /************************************************************************
-  *		ELM327: Reception parser			*
-  *								*
-  * (assumes elm->lock taken)					*
-  ************************************************************************/
+ /***********************************************************************
+  *		ELM327: Reception parser				*
+  *									*
+  * (assumes elm->lock taken)						*
+  ***********************************************************************/
 
 static void elm327_parse_error(struct elmcan *elm, int len)
 {
