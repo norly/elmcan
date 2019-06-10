@@ -1215,13 +1215,13 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 
 	/* At this point, all ldisc calls to us have become no-ops. */
 
+	flush_work(&elm->tx_work);
+
 	/* Mark channel as dead */
 	spin_lock_bh(&elm->lock);
 	tty->disc_data = NULL;
 	elm->tty = NULL;
 	spin_unlock_bh(&elm->lock);
-
-	flush_work(&elm->tx_work);
 
 	netdev_info(elm->dev, "elmcan off %s.\n", tty->name);
 

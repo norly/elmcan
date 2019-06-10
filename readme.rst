@@ -341,5 +341,4 @@ termination resistors on its PCB and try removing them.
 To Do list for future development
 ----------------------------------
 
-- flushing of ``tx_work`` is too late in ``ldisc_close()``
-  (is this still the case?)
+- None currently
