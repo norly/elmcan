@@ -53,7 +53,11 @@ Also, elmcan depends on ``can-dev``:
 
     sudo modprobe can-dev
 
-
+Install
+-------------
+    cd module/
+    
+    sudo dkms install `pwd`
 
 Data sheet
 -----------
