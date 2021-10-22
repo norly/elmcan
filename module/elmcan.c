@@ -1226,7 +1226,6 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
 
 static struct tty_ldisc_ops elmcan_ldisc = {
 	.owner		= THIS_MODULE,
-	.magic		= TTY_LDISC_MAGIC,
 	.name		= "elmcan",
 	.receive_buf	= elmcan_ldisc_rx,
 	.write_wakeup	= elmcan_ldisc_tx_wakeup,
