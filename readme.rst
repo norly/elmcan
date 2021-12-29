@@ -56,8 +56,8 @@ Also, elmcan depends on ``can-dev``:
 Install
 -------------
     cd module/
-    
-    sudo dkms install `pwd`
+
+    sudo dkms install .
 
 Data sheet
 -----------
