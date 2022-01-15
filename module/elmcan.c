@@ -363,7 +363,7 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 	case 17:
 		if (!memcmp(elm->rxbuf, "UNABLE TO CONNECT", 17)) {
 			netdev_err(elm->dev,
-				   "The ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
+				   "ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
 		}
 		break;
 	case 11:
@@ -397,7 +397,7 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 		break;
 	case 5:
 		if (!memcmp(elm->rxbuf, "ERR", 3)) {
-			netdev_err(elm->dev, "The ELM327 reported an ERR%c%c. Please power it off and on again.\n",
+			netdev_err(elm->dev, "ELM327 reported an ERR%c%c. Please power it off and on again.\n",
 				   elm->rxbuf[3], elm->rxbuf[4]);
 			frame.can_id |= CAN_ERR_CRTL;
 		}
@@ -457,7 +457,7 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 		 * The main code will restart listening.
 		 */
 		elm327_kick_into_cmd_mode(elm);
-		return 3;
+		return -ENODATA;
 	}
 
 	/* Use spaces in CAN ID to distinguish 29 or 11 bit address length.
@@ -476,14 +476,14 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 		/* This is not a well-formatted data line.
 		 * Assume it's an error message.
 		 */
-		return 1;
+		return -ENODATA;
 	}
 
 	if (hexlen < datastart) {
 		/* The line is too short to be a valid frame hex dump.
 		 * Something interrupted the hex dump or it is invalid.
 		 */
-		return 1;
+		return -ENODATA;
 	}
 
 	/* From here on all chars up to buf[hexlen] are hex or spaces,
@@ -535,7 +535,7 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 		 * However, this will correctly drop the state machine back into
 		 * command mode.
 		 */
-		return 2;
+		return -ENODATA;
 	}
 
 	/* Parse the data nibbles. */
@@ -1244,7 +1244,7 @@ static int __init elmcan_init(void)
 
 	status = tty_register_ldisc(N_ELMCAN, &elmcan_ldisc);
 	if (status)
-		pr_err("can't register line discipline\n");
+		pr_err("Can't register line discipline\n");
 
 	return status;
 }
