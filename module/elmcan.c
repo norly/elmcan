@@ -30,12 +30,14 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/tty.h>
+#include <linux/version.h>
 #include <linux/workqueue.h>
 
 #include <linux/can.h>
 #include <linux/can/dev.h>
 #include <linux/can/error.h>
 #include <linux/can/led.h>
+#include <linux/can/rx-offload.h>
 
 MODULE_ALIAS_LDISC(N_ELMCAN);
 MODULE_DESCRIPTION("ELM327 based CAN interface");
@@ -55,6 +57,8 @@ MODULE_PARM_DESC(accept_flaky_uart, "Don't bail at the first invalid character. 
 #ifndef N_ELMCAN
 #define N_ELMCAN 29
 #endif
+
+#define ELM327_NAPI_WEIGHT 4
 
 #define ELM327_SIZE_RXBUF 256
 #define ELM327_SIZE_TXBUF 32
@@ -84,6 +88,8 @@ enum ELM_TODO {
 struct elmcan {
 	/* This must be the first member when using alloc_candev() */
 	struct can_priv can;
+
+	struct can_rx_offload offload;
 
 	/* TTY and netdev devices that we're bridging */
 	struct tty_struct	*tty;
@@ -313,11 +319,16 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm,
 
 	memcpy(cf, frame, sizeof(struct can_frame));
 
-	elm->dev->stats.rx_packets++;
-	elm->dev->stats.rx_bytes += frame->can_dlc;
-	netif_rx_ni(skb);
+	/* Queue for NAPI pickup.
+	 * rx-offload will update stats and LEDs for us.
+	 */
+	if (can_rx_offload_queue_tail(&elm->offload, skb))
+		elm->dev->stats.rx_fifo_errors++;
 
-	can_led_event(elm->dev, CAN_LED_EVENT_RX);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+	/* Wake NAPI */
+	can_rx_offload_irq_finish(&elm->offload);
+#endif
 }
 
  /***********************************************************************
@@ -762,6 +773,16 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
   * (takes elm->lock)							*
   ***********************************************************************/
 
+/* Dummy needed to use can_rx_offload */
+static struct sk_buff *elmcan_mailbox_read(struct can_rx_offload *offload,
+					   unsigned int n, u32 *timestamp,
+					   bool drop)
+{
+	WARN_ON(1); /* This function is a dummy, so don't call it! */
+
+	return ERR_PTR(-ENOBUFS);
+}
+
 static int elmcan_netdev_open(struct net_device *dev)
 {
 	struct elmcan *elm = netdev_priv(dev);
@@ -789,6 +810,15 @@ static int elmcan_netdev_open(struct net_device *dev)
 	elm327_init(elm);
 	spin_unlock_bh(&elm->lock);
 
+	elm->offload.mailbox_read = elmcan_mailbox_read;
+	err = can_rx_offload_add_fifo(dev, &elm->offload, ELM327_NAPI_WEIGHT);
+	if (err) {
+		close_candev(dev);
+		return err;
+	}
+
+	can_rx_offload_enable(&elm->offload);
+
 	can_led_event(dev, CAN_LED_EVENT_OPEN);
 	elm->can.state = CAN_STATE_ERROR_ACTIVE;
 	netif_start_queue(dev);
@@ -799,6 +829,8 @@ static int elmcan_netdev_open(struct net_device *dev)
 static int elmcan_netdev_close(struct net_device *dev)
 {
 	struct elmcan *elm = netdev_priv(dev);
+
+	netif_stop_queue(dev);
 
 	spin_lock_bh(&elm->lock);
 	if (elm->tty) {
@@ -817,8 +849,9 @@ static int elmcan_netdev_close(struct net_device *dev)
 		spin_unlock_bh(&elm->lock);
 	}
 
+	can_rx_offload_disable(&elm->offload);
 	elm->can.state = CAN_STATE_STOPPED;
-	netif_stop_queue(dev);
+	can_rx_offload_del(&elm->offload);
 	close_candev(dev);
 	can_led_event(dev, CAN_LED_EVENT_STOP);
 
