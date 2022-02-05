@@ -1282,7 +1282,7 @@ static int __init elmcan_init(void)
 {
 	int status;
 
-	pr_info("ELM327 based best-effort CAN interface driver\n");
+	pr_info("ELM327 based best effort CAN interface driver\n");
 	pr_info("This device is severely limited as a CAN interface, see documentation.\n");
 
 	status = tty_register_ldisc(N_ELMCAN, &elmcan_ldisc);

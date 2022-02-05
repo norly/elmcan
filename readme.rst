@@ -24,13 +24,13 @@ Introduction
 -------------
 
 This driver is an effort to turn abundant ELM327 based OBD interfaces
-into full-fledged (as far as possible) CAN interfaces.
+into full fledged (as far as possible) CAN interfaces.
 
-Since the ELM327 was never meant to be a stand-alone CAN controller,
+Since the ELM327 was never meant to be a stand alone CAN controller,
 the driver has to switch between its modes as quickly as possible in
 order to fake full-duplex operation.
 
-As such, elmcan is a best-effort driver. However, this is more than
+As such, elmcan is a best effort driver. However, this is more than
 enough to implement simple request-response protocols (such as OBD II),
 and to monitor broadcast messages on a bus (such as in a vehicle).
 
@@ -118,7 +118,7 @@ Module parameters
 - ``accept_flaky_uart`` - Try to live with a bad controller or UART line
 
 	Some adapters and/or their connection are unreliable. Enable this
-	option to try and work around the situation. This is a best-effort
+	option to try and work around the situation. This is a best effort
 	workaround, so undefined behavior will likely occur sooner or later.
 	Without this option, the driver will bail on the first unrecognized
 	character it receives from the TTY.
