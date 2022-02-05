@@ -1,4 +1,4 @@
-Linux SocketCAN driver for ELM327
+ELM327 driver for Linux SocketCAN
 ==================================
 
 Authors
