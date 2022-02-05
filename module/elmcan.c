@@ -788,7 +788,7 @@ static struct sk_buff *elmcan_mailbox_read(struct can_rx_offload *offload,
 					   unsigned int n, u32 *timestamp,
 					   bool drop)
 {
-	WARN_ON(1); /* This function is a dummy, so don't call it! */
+	WARN_ON_ONCE(1); /* This function is a dummy, so don't call it! */
 
 	return ERR_PTR(-ENOBUFS);
 }
@@ -891,7 +891,7 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 	/* We shouldn't get here after a hardware fault:
 	 * can_bus_off() calls netif_carrier_off()
 	 */
-	WARN_ON(elm->hw_failure);
+	WARN_ON_ONCE(elm->hw_failure);
 
 	if (!elm->tty ||
 	    elm->hw_failure ||
