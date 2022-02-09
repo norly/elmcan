@@ -40,8 +40,11 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/tty.h>
+#include <linux/tty_ldisc.h>
 #include <linux/version.h>
 #include <linux/workqueue.h>
+
+#include <uapi/linux/tty.h>
 
 #include <linux/can.h>
 #include <linux/can/dev.h>
@@ -982,8 +985,13 @@ static bool elmcan_is_valid_rx_char(char c)
  * This will not be re-entered while running, but other ldisc
  * functions may be called in parallel.
  */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 static void elmcan_ldisc_rx(struct tty_struct *tty,
 			    const unsigned char *cp, char *fp, int count)
+#else
+static void elmcan_ldisc_rx(struct tty_struct *tty,
+			    const unsigned char *cp, const char *fp, int count)
+#endif
 {
 	struct elmcan *elm = get_elm(tty);
 
@@ -1231,13 +1239,22 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 	free_candev(elm->dev);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,16,0)
 static int elmcan_ldisc_hangup(struct tty_struct *tty)
+#else
+static void elmcan_ldisc_hangup(struct tty_struct *tty)
+#endif
 {
 	elmcan_ldisc_close(tty);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,16,0)
 	return 0;
+#endif
 }
 
-static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
+static int elmcan_ldisc_ioctl(struct tty_struct *tty,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0)
+			      struct file *file,
+#endif
 			      unsigned int cmd, unsigned long arg)
 {
 	struct elmcan *elm = get_elm(tty);
@@ -1263,13 +1280,18 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty, struct file *file,
 
 	default:
 		put_elm(elm);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,16,0)
 		return tty_mode_ioctl(tty, file, cmd, arg);
+#else
+		return tty_mode_ioctl(tty, cmd, arg);
+#endif
 	}
 }
 
 static struct tty_ldisc_ops elmcan_ldisc = {
 	.owner		= THIS_MODULE,
 	.name		= "elmcan",
+	.num		= N_ELMCAN,
 	.receive_buf	= elmcan_ldisc_rx,
 	.write_wakeup	= elmcan_ldisc_tx_wakeup,
 	.open		= elmcan_ldisc_open,
@@ -1285,7 +1307,11 @@ static int __init elmcan_init(void)
 	pr_info("ELM327 based best effort CAN interface driver\n");
 	pr_info("This device is severely limited as a CAN interface, see documentation.\n");
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 	status = tty_register_ldisc(N_ELMCAN, &elmcan_ldisc);
+#else
+	status = tty_register_ldisc(&elmcan_ldisc);
+#endif
 	if (status)
 		pr_err("Can't register line discipline\n");
 
@@ -1297,12 +1323,16 @@ static void __exit elmcan_exit(void)
 	/* This will only be called when all channels have been closed by
 	 * userspace - tty_ldisc.c takes care of the module's refcount.
 	 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 	int status;
 
 	status = tty_unregister_ldisc(N_ELMCAN);
 	if (status)
 		pr_err("Can't unregister line discipline (error: %d)\n",
 		       status);
+#else
+	tty_unregister_ldisc(&elmcan_ldisc);
+#endif
 }
 
 module_init(elmcan_init);
