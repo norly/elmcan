@@ -1,24 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
-/* elmcan.c - ELM327 based CAN interface driver
- *            (tty line discipline)
+/* ELM327 based CAN interface driver (tty line discipline)
  *
  * This driver started as a derivative of linux/drivers/net/can/slcan.c
- * and my thanks go to the original authors for their inspiration.
- *
- * elmcan.c Author : Max Staudt <max-linux@enpas.org>
- * slcan.c Author  : Oliver Hartkopp <socketcan@hartkopp.net>
- * slip.c Authors  : Laurence Culhane <loz@holmes.demon.co.uk>
- *                   Fred N. van Kempen <waltje@uwalt.nl.mugnet.org>
- *
- * This code barely bears any resemblance to slcan anymore, and whatever
- * may be left is Linux specific boilerplate anyway, however I am leaving
- * the GPL-2.0 identifier at the top just to be sure.
- *
- * Please feel free to use my own code, especially the ELM327 communication
- * logic, in accordance with SPDX-License-Identifier BSD-3-Clause to port
- * this driver to other systems.
- *    - Max
- *
+ * and my thanks go to the original authors for their inspiration, even
+ * after almost none of their code is left.
  */
 
 #define pr_fmt(fmt) "[elmcan] " fmt
@@ -168,12 +153,7 @@ static DEFINE_SPINLOCK(elmcan_discdata_lock);
 
 static inline void elm327_hw_failure(struct elmcan *elm);
 
- /***********************************************************************
-  *		ELM327: Transmission					*
-  *									*
-  * (all functions assume elm->lock taken)				*
-  ***********************************************************************/
-
+/* Assumes elm->lock taken. */
 static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 {
 	int actual;
@@ -209,6 +189,8 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
  * We send ELM327_MAGIC_CHAR which will either abort any running
  * operation, or be echoed back to us in case we're already in command
  * mode.
+ *
+ * Assumes elm->lock taken.
  */
 static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 {
@@ -219,7 +201,10 @@ static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 	}
 }
 
-/* Schedule a CAN frame and necessary config changes to be sent to the TTY. */
+/* Schedule a CAN frame and necessary config changes to be sent to the TTY.
+ *
+ * Assumes elm->lock taken.
+ */
 static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 {
 	/* Schedule any necessary changes in ELM327's CAN configuration */
@@ -255,12 +240,10 @@ static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 	elm327_kick_into_cmd_mode(elm);
 }
 
- /***********************************************************************
-  *		ELM327: Initialization sequence				*
-  *									*
-  * (assumes elm->lock taken)						*
-  ***********************************************************************/
-
+/* ELM327 initialization sequence.
+ *
+ * Assumes elm->lock taken.
+ */
 static char *elm327_init_script[] = {
 	"AT WS\r",        /* v1.0: Warm Start */
 	"AT PP FF OFF\r", /* v1.0: All Programmable Parameters Off */
@@ -310,12 +293,7 @@ static void elm327_init(struct elmcan *elm)
 	elm327_kick_into_cmd_mode(elm);
 }
 
- /***********************************************************************
-  *		ELM327: Reception -> netdev glue			*
-  *									*
-  * (assumes elm->lock taken)						*
-  ***********************************************************************/
-
+/* Assumes elm->lock taken. */
 static void elm327_feed_frame_to_netdev(struct elmcan *elm,
 					const struct can_frame *frame)
 {
@@ -344,13 +322,9 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm,
 #endif
 }
 
- /***********************************************************************
-  *		ELM327: "Panic" handler					*
-  *									*
-  * (assumes elm->lock taken)						*
-  ***********************************************************************/
-
-/* Called when we're out of ideas and just want it all to end. */
+/* Called when we're out of ideas and just want it all to end.
+ * Assumes elm->lock taken.
+ */
 static inline void elm327_hw_failure(struct elmcan *elm)
 {
 	struct can_frame frame;
@@ -369,12 +343,7 @@ static inline void elm327_hw_failure(struct elmcan *elm)
 	can_bus_off(elm->dev);
 }
 
- /***********************************************************************
-  *		ELM327: Reception parser				*
-  *									*
-  * (assumes elm->lock taken)						*
-  ***********************************************************************/
-
+/* Assumes elm->lock taken. */
 static void elm327_parse_error(struct elmcan *elm, int len)
 {
 	struct can_frame frame;
@@ -445,6 +414,8 @@ static void elm327_parse_error(struct elmcan *elm, int len)
  * Instead of a payload, RTR indicates a remote request.
  *
  * We will use the spaces and line length to guess the format.
+ *
+ * Assumes elm->lock taken.
  */
 static int elm327_parse_frame(struct elmcan *elm, int len)
 {
@@ -574,6 +545,7 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 	return 0;
 }
 
+/* Assumes elm->lock taken. */
 static void elm327_parse_line(struct elmcan *elm, int len)
 {
 	/* Skip empty lines */
@@ -604,6 +576,7 @@ static void elm327_parse_line(struct elmcan *elm, int len)
 	}
 }
 
+/* Assumes elm->lock taken. */
 static void elm327_handle_prompt(struct elmcan *elm)
 {
 	struct can_frame *frame = &elm->can_frame;
@@ -688,12 +661,14 @@ static bool elm327_is_ready_char(char c)
 	return (c & 0x3f) == ELM327_READY_CHAR;
 }
 
+/* Assumes elm->lock taken. */
 static void elm327_drop_bytes(struct elmcan *elm, int i)
 {
 	memmove(&elm->rxbuf[0], &elm->rxbuf[i], ELM327_SIZE_RXBUF - i);
 	elm->rxfill -= i;
 }
 
+/* Assumes elm->lock taken. */
 static void elm327_parse_rxbuf(struct elmcan *elm)
 {
 	int len;
@@ -779,12 +754,6 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			elm327_parse_rxbuf(elm);
 	}
 }
-
- /***********************************************************************
-  *		netdev							*
-  *									*
-  * (takes elm->lock)							*
-  ***********************************************************************/
 
 /* Dummy needed to use can_rx_offload */
 static struct sk_buff *elmcan_mailbox_read(struct can_rx_offload *offload,
@@ -924,12 +893,6 @@ static const struct net_device_ops elmcan_netdev_ops = {
 	.ndo_start_xmit	= elmcan_netdev_start_xmit,
 	.ndo_change_mtu	= can_change_mtu,
 };
-
- /***********************************************************************
-  *		Line discipline						*
-  *									*
-  * (takes elm->lock)							*
-  ***********************************************************************/
 
 /* Get a reference to our struct, taking into account locks/refcounts.
  * This is to ensure ordering in case we are shutting down, and to ensure
@@ -1171,7 +1134,7 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	elm->can.do_set_bittiming = elmcan_do_set_bittiming;
 	elm->can.ctrlmode_supported = CAN_CTRLMODE_LISTENONLY;
 
-	/* Configure netlink interface */
+	/* Configure netdev interface */
 	elm->dev = dev;
 	dev->netdev_ops = &elmcan_netdev_ops;
 
