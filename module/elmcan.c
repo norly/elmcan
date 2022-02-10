@@ -1092,8 +1092,6 @@ static const u32 elmcan_bitrate_const[64] = {
 /* Dummy needed to use bitrate_const */
 static int elmcan_do_set_bittiming(struct net_device *netdev)
 {
-	(void)netdev;
-
 	return 0;
 }
 
@@ -1266,9 +1264,6 @@ static struct tty_ldisc_ops elmcan_ldisc = {
 static int __init elmcan_init(void)
 {
 	int status;
-
-	pr_info("ELM327 based best effort CAN interface driver\n");
-	pr_info("This device is severely limited as a CAN interface, see documentation.\n");
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 	status = tty_register_ldisc(N_ELMCAN, &elmcan_ldisc);
