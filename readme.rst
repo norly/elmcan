@@ -1,5 +1,15 @@
+.. SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
+
 ELM327 driver for Linux SocketCAN
 ==================================
+
+Out-of-tree version
+--------------------
+
+This is the non-upstreamed version of the elmcan driver.
+Please see out-of-tree.rst for compilation/usage hints.
+
+
 
 Authors
 --------
@@ -43,21 +53,6 @@ This driver is meant for ELM327 versions 1.4b and up, see below for
 known limitations in older controllers and clones.
 
 
-
-Requirements
--------------
-
-This requires Linux 4.11 (for 431af779256c), and has been tested on 4.19.
-
-Also, elmcan depends on ``can-dev``:
-
-    sudo modprobe can-dev
-
-Install
--------------
-    cd module/
-
-    sudo dkms install .
 
 Data sheet
 -----------
@@ -322,12 +317,3 @@ not helpful when trying to tap into the middle of an existing CAN bus.
 
 If communications don't work with the adapter connected, check for the
 termination resistors on its PCB and try removing them.
-
-
-
-Thanks
--------
-
-Thanks go out to Oliver Neukum for his early reviews and suggestions.
-
-Several more people have encouraged me to finish this - thank you all.
