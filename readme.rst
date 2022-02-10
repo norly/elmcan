@@ -162,8 +162,8 @@ Known limitations of the controller
 - Versions prior to 1.3
 
   These chips cannot be used at all with elmcan. They do not support
-  the "``AT D1``", which is necessary to avoid parsing conflicts on
-  incoming data, as well as distinction of RTR frame lengths.
+  the "``AT D1``" command, which is necessary to avoid parsing conflicts
+  on incoming data, as well as distinction of RTR frame lengths.
 
   Specifically, this allows for easy distinction of SFF and EFF
   frames, and to check whether frames are complete. While it is possible
