@@ -47,3 +47,5 @@ Thanks
 Thanks go out to Oliver Neukum for his early reviews and suggestions.
 
 Several more people have encouraged me to finish this - thank you all.
+
+Thanks to tomaszduda23 for the dkms.conf file.
