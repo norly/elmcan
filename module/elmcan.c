@@ -42,15 +42,6 @@ MODULE_DESCRIPTION("ELM327 based CAN interface");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
 
-/* If this is enabled, we'll try to make the best of the situation
- * even if we receive unexpected characters on the line.
- * No guarantees.
- * Handle with care, it's likely your hardware is unreliable!
- */
-static bool accept_flaky_uart;
-module_param_named(accept_flaky_uart, accept_flaky_uart, bool, 0444);
-MODULE_PARM_DESC(accept_flaky_uart, "Don't bail at the first invalid character. Behavior undefined.");
-
 /* Line discipline ID number */
 #ifndef N_ELMCAN
 #define N_ELMCAN 29
@@ -448,12 +439,10 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 		}
 	}
 
-	/* If we accept stray characters coming in:
-	 * Check for stray characters on a payload line.
-	 * No idea what causes this.
+	/* Sanity check whether the line is really a clean hexdump,
+	 * or terminated by an error message, or contains garbage.
 	 */
-	if (accept_flaky_uart &&
-	    hexlen < len &&
+	if (hexlen < len &&
 	    !isdigit(elm->rxbuf[hexlen]) &&
 	    !isupper(elm->rxbuf[hexlen]) &&
 	    '<' != elm->rxbuf[hexlen] &&
@@ -938,8 +927,7 @@ static void put_elm(struct elmcan *elm)
 
 static bool elmcan_is_valid_rx_char(char c)
 {
-	return (accept_flaky_uart ||
-		isdigit(c) ||
+	return (isdigit(c) ||
 		isupper(c) ||
 		c == ELM327_MAGIC_CHAR ||
 		c == ELM327_READY_CHAR ||
