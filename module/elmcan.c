@@ -396,8 +396,11 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 		}
 		break;
 	default:
-		/* Don't emit an error frame if we're unsure */
-		return;
+		/* Something else has happened.
+		 * Maybe garbage on the UART line.
+		 * Emit a generic error frame.
+		 */
+		break;
 	}
 
 	elm327_feed_frame_to_netdev(elm, &frame);
@@ -451,7 +454,6 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 		/* The line is likely garbled anyway, so bail.
 		 * The main code will restart listening.
 		 */
-		elm327_kick_into_cmd_mode(elm);
 		return -ENODATA;
 	}
 
