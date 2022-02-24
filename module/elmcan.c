@@ -96,11 +96,6 @@ struct elmcan {
 	 */
 	atomic_t		refcount;
 
-	/* Stop the channel on hardware failure.
-	 * Once this is true, nothing will be sent to the TTY.
-	 */
-	bool			hw_failure;
-
 	/* TTY TX helpers */
 	struct work_struct	tx_work;	/* Flushes TTY TX buffer   */
 	unsigned char		*txbuf;
@@ -149,9 +144,6 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 {
 	int actual;
 
-	if (elm->hw_failure)
-		return;
-
 	memcpy(elm->txbuf, buf, len);
 
 	/* Order of next two lines is *very* important.
@@ -168,7 +160,6 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 		netdev_err(elm->dev,
 			   "Failed to write to tty %s.\n",
 			   elm->tty->name);
-		elm327_hw_failure(elm);
 		return;
 	}
 
@@ -321,17 +312,16 @@ static inline void elm327_hw_failure(struct elmcan *elm)
 	struct can_frame frame;
 
 	memset(&frame, 0, sizeof(frame));
-	frame.can_id = CAN_ERR_FLAG;
+	frame.can_id = CAN_ERR_FLAG | CAN_ERR_RESTARTED;
 	frame.can_dlc = CAN_ERR_DLC;
 	frame.data[5] = 'R';
 	frame.data[6] = 'I';
 	frame.data[7] = 'P';
 	elm327_feed_frame_to_netdev(elm, &frame);
 
-	netdev_err(elm->dev, "ELM327 misbehaved. Blocking further communication.\n");
+	netdev_err(elm->dev, "ELM327 misbehaved. Restarting. Watch for error CAN frames.\n");
 
-	elm->hw_failure = true;
-	can_bus_off(elm->dev);
+	elm327_init(elm);
 }
 
 /* Compare a buffer to a fixed string */
@@ -769,11 +759,6 @@ static int elmcan_netdev_open(struct net_device *dev)
 	int err;
 
 	spin_lock_bh(&elm->lock);
-	if (elm->hw_failure) {
-		netdev_err(elm->dev, "Refusing to open interface after a hardware fault has been detected.\n");
-		spin_unlock_bh(&elm->lock);
-		return -EIO;
-	}
 
 	if (!elm->tty) {
 		spin_unlock_bh(&elm->lock);
@@ -858,13 +843,7 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 	 */
 	spin_lock(&elm->lock);
 
-	/* We shouldn't get here after a hardware fault:
-	 * can_bus_off() calls netif_carrier_off()
-	 */
-	WARN_ON_ONCE(elm->hw_failure);
-
 	if (!elm->tty ||
-	    elm->hw_failure ||
 	    elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY) {
 		spin_unlock(&elm->lock);
 		goto out;
@@ -960,9 +939,6 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 
 	spin_lock_bh(&elm->lock);
 
-	if (elm->hw_failure)
-		goto out;
-
 	while (count-- && elm->rxfill < ELM327_SIZE_RXBUF) {
 		if (fp && *fp++) {
 			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
@@ -1023,10 +999,6 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 	ssize_t actual;
 
 	spin_lock_bh(&elm->lock);
-	if (elm->hw_failure) {
-		spin_unlock_bh(&elm->lock);
-		return;
-	}
 
 	if (!elm->tty || !netif_running(elm->dev)) {
 		spin_unlock_bh(&elm->lock);
