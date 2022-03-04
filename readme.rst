@@ -105,6 +105,20 @@ The line discipline can be attached on a command prompt as follows::
 To change the ELM327's serial settings, please refer to its data
 sheet. This needs to be done before attaching the line discipline.
 
+Once the ldisc is attached, the CAN interface starts out unconfigured.
+Set the speed before starting it:
+
+    # The interface needs to be down to change parameters
+    sudo ip link set can0 down
+    sudo ip link set can0 type can bitrate 500000
+    sudo ip link set can0 up
+
+500000 bit/s is a common rate for OBD-II diagnostics.
+If you're connecting straight to a car's OBD port, this is the speed
+that most cars (but not all!) expect.
+
+After this, you can set out as usual with candump, cansniffer, etc.
+
 
 
 Known limitations of the controller
