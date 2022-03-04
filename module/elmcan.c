@@ -37,14 +37,17 @@
 #include <linux/can/led.h>
 #include <linux/can/rx-offload.h>
 
-MODULE_ALIAS_LDISC(N_ELMCAN);
+MODULE_ALIAS_LDISC(N_DEVELOPMENT);
 MODULE_DESCRIPTION("ELM327 based CAN interface");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
 
-/* Line discipline ID number */
-#ifndef N_ELMCAN
-#define N_ELMCAN 29
+/* Line discipline ID number.
+ * N_DEVELOPMENT will likely be defined from Linux 5.18 onwards:
+ * https://git.kernel.org/pub/scm/linux/kernel/git/gregkh/tty.git/commit/?h=tty-next&id=c2faf737abfb10f88f2d2612d573e9edc3c42c37
+ */
+#ifndef N_DEVELOPMENT
+#define N_DEVELOPMENT 29
 #endif
 
 #define ELM327_NAPI_WEIGHT 4
@@ -1249,7 +1252,7 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty,
 static struct tty_ldisc_ops elmcan_ldisc = {
 	.owner		= THIS_MODULE,
 	.name		= "elmcan",
-	.num		= N_ELMCAN,
+	.num		= N_DEVELOPMENT,
 	.receive_buf	= elmcan_ldisc_rx,
 	.write_wakeup	= elmcan_ldisc_tx_wakeup,
 	.open		= elmcan_ldisc_open,
@@ -1263,7 +1266,7 @@ static int __init elmcan_init(void)
 	int status;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
-	status = tty_register_ldisc(N_ELMCAN, &elmcan_ldisc);
+	status = tty_register_ldisc(N_DEVELOPMENT, &elmcan_ldisc);
 #else
 	status = tty_register_ldisc(&elmcan_ldisc);
 #endif
@@ -1281,7 +1284,7 @@ static void __exit elmcan_exit(void)
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 	int status;
 
-	status = tty_unregister_ldisc(N_ELMCAN);
+	status = tty_unregister_ldisc(N_DEVELOPMENT);
 	if (status)
 		pr_err("Can't unregister line discipline (error: %d)\n",
 		       status);
