@@ -343,8 +343,21 @@ static int _memstrcmp(const u8 *mem, const char *str)
 	return memcmp(mem, str, strlen(str));
 }
 
+/* Compare buffer to string length, then compare buffer to fixed string.
+ * This ensures two things:
+ *  - It flags cases where the fixed string is only the start of the
+ *    buffer, rather than exactly all of it.
+ *  - It avoids byte comparisons in case the length doesn't match.
+ */
+static int _len_memstrcmp(const u8 *mem, size_t mem_len, const char *str)
+{
+	size_t str_len = strlen(str);
+
+	return (mem_len != str_len) || memcmp(mem, str, str_len);
+}
+
 /* Assumes elm->lock taken. */
-static void elm327_parse_error(struct elmcan *elm, int len)
+static void elm327_parse_error(struct elmcan *elm, size_t len)
 {
 	struct can_frame frame;
 
@@ -353,55 +366,38 @@ static void elm327_parse_error(struct elmcan *elm, int len)
 	frame.can_dlc = CAN_ERR_DLC;
 
 	/* Filter possible error messages based on length of RX'd line */
-	switch (len) {
-	case 17:
-		if (!_memstrcmp(elm->rxbuf, "UNABLE TO CONNECT")) {
-			netdev_err(elm->dev,
-				   "ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
-		}
-		break;
-	case 11:
-		if (!_memstrcmp(elm->rxbuf, "BUFFER FULL")) {
-			/* This case will only happen if the last data
-			 * line was complete.
-			 * Otherwise, elm327_parse_frame() will heuristically
-			 * emit this error frame instead.
-			 */
-			frame.can_id |= CAN_ERR_CRTL;
-			frame.data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
-		}
-		break;
-	case 9:
-		if (!_memstrcmp(elm->rxbuf, "BUS ERROR"))
-			frame.can_id |= CAN_ERR_BUSERROR;
-		if (!_memstrcmp(elm->rxbuf, "CAN ERROR"))
-			frame.can_id |= CAN_ERR_PROT;
-		if (!_memstrcmp(elm->rxbuf, "<RX ERROR"))
-			frame.can_id |= CAN_ERR_PROT;
-		break;
-	case 8:
-		if (!_memstrcmp(elm->rxbuf, "BUS BUSY")) {
-			frame.can_id |= CAN_ERR_PROT;
-			frame.data[2] = CAN_ERR_PROT_OVERLOAD;
-		}
-		if (!_memstrcmp(elm->rxbuf, "FB ERROR")) {
-			frame.can_id |= CAN_ERR_PROT;
-			frame.data[2] = CAN_ERR_PROT_TX;
-		}
-		break;
-	case 5: /* ERR is followed by two digits, hence line length 5 */
-		if (!_memstrcmp(elm->rxbuf, "ERR")) {
-			netdev_err(elm->dev, "ELM327 reported an ERR%c%c. Please power it off and on again.\n",
-				   elm->rxbuf[3], elm->rxbuf[4]);
-			frame.can_id |= CAN_ERR_CRTL;
-		}
-		break;
-	default:
+	if (!_len_memstrcmp(elm->rxbuf, len, "UNABLE TO CONNECT")) {
+		netdev_err(elm->dev,
+			   "ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
+	} else if (!_len_memstrcmp(elm->rxbuf, len, "BUFFER FULL")) {
+		/* This will only happen if the last data line was complete.
+		 * Otherwise, elm327_parse_frame() will heuristically
+		 * emit this kind of error frame instead.
+		 */
+		frame.can_id |= CAN_ERR_CRTL;
+		frame.data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
+	} else if (!_len_memstrcmp(elm->rxbuf, len, "BUS ERROR")) {
+		frame.can_id |= CAN_ERR_BUSERROR;
+	} else if (!_len_memstrcmp(elm->rxbuf, len, "CAN ERROR")) {
+		frame.can_id |= CAN_ERR_PROT;
+	} else if (!_len_memstrcmp(elm->rxbuf, len, "<RX ERROR")) {
+		frame.can_id |= CAN_ERR_PROT;
+	} else if (!_len_memstrcmp(elm->rxbuf, len, "BUS BUSY")) {
+		frame.can_id |= CAN_ERR_PROT;
+		frame.data[2] = CAN_ERR_PROT_OVERLOAD;
+	} else if (!_len_memstrcmp(elm->rxbuf, len, "FB ERROR")) {
+		frame.can_id |= CAN_ERR_PROT;
+		frame.data[2] = CAN_ERR_PROT_TX;
+	} else if (len == 5 && !_memstrcmp(elm->rxbuf, "ERR")) {
+		/* ERR is followed by two digits, hence line length 5 */
+		netdev_err(elm->dev, "ELM327 reported an ERR%c%c. Please power it off and on again.\n",
+			   elm->rxbuf[3], elm->rxbuf[4]);
+		frame.can_id |= CAN_ERR_CRTL;
+	} else {
 		/* Something else has happened.
 		 * Maybe garbage on the UART line.
 		 * Emit a generic error frame.
 		 */
-		break;
 	}
 
 	elm327_feed_frame_to_netdev(elm, &frame);
@@ -421,7 +417,7 @@ static void elm327_parse_error(struct elmcan *elm, int len)
  *
  * Assumes elm->lock taken.
  */
-static int elm327_parse_frame(struct elmcan *elm, int len)
+static int elm327_parse_frame(struct elmcan *elm, size_t len)
 {
 	struct can_frame frame;
 	int hexlen;
@@ -547,7 +543,7 @@ static int elm327_parse_frame(struct elmcan *elm, int len)
 }
 
 /* Assumes elm->lock taken. */
-static void elm327_parse_line(struct elmcan *elm, int len)
+static void elm327_parse_line(struct elmcan *elm, size_t len)
 {
 	/* Skip empty lines */
 	if (!len)
@@ -663,7 +659,7 @@ static bool elm327_is_ready_char(char c)
 }
 
 /* Assumes elm->lock taken. */
-static void elm327_drop_bytes(struct elmcan *elm, int i)
+static void elm327_drop_bytes(struct elmcan *elm, size_t i)
 {
 	memmove(&elm->rxbuf[0], &elm->rxbuf[i], ELM327_SIZE_RXBUF - i);
 	elm->rxfill -= i;
@@ -672,7 +668,7 @@ static void elm327_drop_bytes(struct elmcan *elm, int i)
 /* Assumes elm->lock taken. */
 static void elm327_parse_rxbuf(struct elmcan *elm)
 {
-	int len;
+	size_t len;
 
 	switch (elm->state) {
 	case ELM_NOTINIT:
