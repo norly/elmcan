@@ -338,7 +338,7 @@ static inline void elm327_hw_failure(struct elmcan *elm)
 }
 
 /* Compare a buffer to a fixed string */
-static int _memstrcmp(const u8 *mem, const char *str)
+static inline int _memstrcmp(const u8 *mem, const char *str)
 {
 	return memcmp(mem, str, strlen(str));
 }
@@ -349,7 +349,7 @@ static int _memstrcmp(const u8 *mem, const char *str)
  *    buffer, rather than exactly all of it.
  *  - It avoids byte comparisons in case the length doesn't match.
  */
-static int _len_memstrcmp(const u8 *mem, size_t mem_len, const char *str)
+static inline int _len_memstrcmp(const u8 *mem, size_t mem_len, const char *str)
 {
 	size_t str_len = strlen(str);
 
