@@ -60,8 +60,8 @@ MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
 #define ELM327_CAN_CONFIG_RECV_BOTH_SFF_EFF  0x2000
 #define ELM327_CAN_CONFIG_BAUDRATE_MULT_8_7  0x1000
 
-#define ELM327_MAGIC_CHAR 'y'
-#define ELM327_MAGIC_STRING "y"
+#define ELM327_DUMMY_CHAR 'y'
+#define ELM327_DUMMY_STRING "y"
 #define ELM327_READY_CHAR '>'
 
 /* Bits in elm->cmds_todo */
@@ -117,7 +117,7 @@ struct elmcan {
 	/* State machine */
 	enum {
 		ELM_NOTINIT = 0,
-		ELM_GETMAGICCHAR,
+		ELM_GETDUMMYCHAR,
 		ELM_GETPROMPT,
 		ELM_RECEIVING,
 	} state;
@@ -180,7 +180,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 }
 
 /* Take the ELM327 out of almost any state and back into command mode.
- * We send ELM327_MAGIC_CHAR which will either abort any running
+ * We send ELM327_DUMMY_CHAR which will either abort any running
  * operation, or be echoed back to us in case we're already in command
  * mode.
  *
@@ -188,10 +188,10 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
  */
 static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 {
-	if (elm->state != ELM_GETMAGICCHAR && elm->state != ELM_GETPROMPT) {
-		elm327_send(elm, ELM327_MAGIC_STRING, 1);
+	if (elm->state != ELM_GETDUMMYCHAR && elm->state != ELM_GETPROMPT) {
+		elm327_send(elm, ELM327_DUMMY_STRING, 1);
 
-		elm->state = ELM_GETMAGICCHAR;
+		elm->state = ELM_GETDUMMYCHAR;
 	}
 }
 
@@ -594,7 +594,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 		elm->next_init_cmd++;
 		if (!(*elm->next_init_cmd)) {
 			clear_bit(TODO_INIT, &elm->cmds_todo);
-			netdev_info(elm->dev, "Initialization finished.\n");
+			/* Init finished. */
 		}
 
 	} else if (test_and_clear_bit(TODO_SILENT_MONITOR, &elm->cmds_todo)) {
@@ -675,19 +675,19 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 		elm->rxfill = 0;
 		break;
 
-	case ELM_GETMAGICCHAR:
+	case ELM_GETDUMMYCHAR:
 	{
 		/* Wait for 'y' or '>' */
 		int i;
 
 		for (i = 0; i < elm->rxfill; i++) {
-			if (elm->rxbuf[i] == ELM327_MAGIC_CHAR) {
+			if (elm->rxbuf[i] == ELM327_DUMMY_CHAR) {
 				elm327_send(elm, "\r", 1);
 				elm->state = ELM_GETPROMPT;
 				i++;
 				break;
 			} else if (elm327_is_ready_char(elm->rxbuf[i])) {
-				elm327_send(elm, ELM327_MAGIC_STRING, 1);
+				elm327_send(elm, ELM327_DUMMY_STRING, 1);
 				i++;
 				break;
 			}
@@ -814,7 +814,7 @@ static int elmcan_netdev_close(struct net_device *dev)
 	spin_lock_bh(&elm->lock);
 	if (elm->tty) {
 		/* Interrupt whatever we're doing right now */
-		elm327_send(elm, ELM327_MAGIC_STRING, 1);
+		elm327_send(elm, ELM327_DUMMY_STRING, 1);
 
 		/* Clear the wakeup bit, as the netdev will be down and thus
 		 * the wakeup handler won't clear it
@@ -928,7 +928,7 @@ static bool elmcan_is_valid_rx_char(char c)
 {
 	return (isdigit(c) ||
 		isupper(c) ||
-		c == ELM327_MAGIC_CHAR ||
+		c == ELM327_DUMMY_CHAR ||
 		c == ELM327_READY_CHAR ||
 		c == '<' ||
 		c == 'a' ||
