@@ -65,16 +65,16 @@ MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
 #define ELM327_READY_CHAR '>'
 
 /* Bits in elm->cmds_todo */
-enum ELM_TODO {
-	TODO_CAN_DATA = 0,
-	TODO_CANID_11BIT,
-	TODO_CANID_29BIT_LOW,
-	TODO_CANID_29BIT_HIGH,
-	TODO_CAN_CONFIG_PART2,
-	TODO_CAN_CONFIG,
-	TODO_RESPONSES,
-	TODO_SILENT_MONITOR,
-	TODO_INIT
+enum ELM327_TX_DO_BITS {
+	ELM327_TX_DO_CAN_DATA = 0,
+	ELM327_TX_DO_CANID_11BIT,
+	ELM327_TX_DO_CANID_29BIT_LOW,
+	ELM327_TX_DO_CANID_29BIT_HIGH,
+	ELM327_TX_DO_CAN_CONFIG_PART2,
+	ELM327_TX_DO_CAN_CONFIG,
+	ELM327_TX_DO_RESPONSES,
+	ELM327_TX_DO_SILENT_MONITOR,
+	ELM327_TX_DO_INIT
 };
 
 struct elmcan {
@@ -127,7 +127,7 @@ struct elmcan {
 	/* The CAN frame and config the ELM327 is sending/using,
 	 * or will send/use after finishing all cmds_todo
 	 */
-	struct can_frame can_frame;
+	struct can_frame can_frame_to_send;
 	unsigned short can_config;
 	unsigned long can_bitrate;
 	unsigned char can_bitrate_divisor;
@@ -202,10 +202,10 @@ static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 {
 	/* Schedule any necessary changes in ELM327's CAN configuration */
-	if (elm->can_frame.can_id != frame->can_id) {
+	if (elm->can_frame_to_send.can_id != frame->can_id) {
 		/* Set the new CAN ID for transmission. */
 		if ((frame->can_id & CAN_EFF_FLAG)
-		    ^ (elm->can_frame.can_id & CAN_EFF_FLAG)) {
+		    ^ (elm->can_frame_to_send.can_id & CAN_EFF_FLAG)) {
 			elm->can_config = (frame->can_id & CAN_EFF_FLAG
 						? 0
 						: ELM327_CAN_CONFIG_SEND_SFF)
@@ -213,23 +213,23 @@ static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 					| ELM327_CAN_CONFIG_RECV_BOTH_SFF_EFF
 					| elm->can_bitrate_divisor;
 
-			set_bit(TODO_CAN_CONFIG, &elm->cmds_todo);
+			set_bit(ELM327_TX_DO_CAN_CONFIG, &elm->cmds_todo);
 		}
 
 		if (frame->can_id & CAN_EFF_FLAG) {
-			clear_bit(TODO_CANID_11BIT, &elm->cmds_todo);
-			set_bit(TODO_CANID_29BIT_LOW, &elm->cmds_todo);
-			set_bit(TODO_CANID_29BIT_HIGH, &elm->cmds_todo);
+			clear_bit(ELM327_TX_DO_CANID_11BIT, &elm->cmds_todo);
+			set_bit(ELM327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo);
+			set_bit(ELM327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo);
 		} else {
-			set_bit(TODO_CANID_11BIT, &elm->cmds_todo);
-			clear_bit(TODO_CANID_29BIT_LOW, &elm->cmds_todo);
-			clear_bit(TODO_CANID_29BIT_HIGH, &elm->cmds_todo);
+			set_bit(ELM327_TX_DO_CANID_11BIT, &elm->cmds_todo);
+			clear_bit(ELM327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo);
+			clear_bit(ELM327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo);
 		}
 	}
 
 	/* Schedule the CAN frame itself. */
-	elm->can_frame = *frame;
-	set_bit(TODO_CAN_DATA, &elm->cmds_todo);
+	elm->can_frame_to_send = *frame;
+	set_bit(ELM327_TX_DO_CAN_DATA, &elm->cmds_todo);
 
 	elm327_kick_into_cmd_mode(elm);
 }
@@ -263,7 +263,7 @@ static char *elm327_init_script[] = {
 static void elm327_init(struct elmcan *elm)
 {
 	elm->state = ELM_NOTINIT;
-	elm->can_frame.can_id = 0x7df;
+	elm->can_frame_to_send.can_id = 0x7df; /* ELM327 HW default */
 	elm->rxfill = 0;
 	elm->drop_next_line = 0;
 
@@ -279,10 +279,10 @@ static void elm327_init(struct elmcan *elm)
 
 	/* Configure ELM327 and then start monitoring */
 	elm->next_init_cmd = &elm327_init_script[0];
-	set_bit(TODO_INIT, &elm->cmds_todo);
-	set_bit(TODO_SILENT_MONITOR, &elm->cmds_todo);
-	set_bit(TODO_RESPONSES, &elm->cmds_todo);
-	set_bit(TODO_CAN_CONFIG, &elm->cmds_todo);
+	set_bit(ELM327_TX_DO_INIT, &elm->cmds_todo);
+	set_bit(ELM327_TX_DO_SILENT_MONITOR, &elm->cmds_todo);
+	set_bit(ELM327_TX_DO_RESPONSES, &elm->cmds_todo);
+	set_bit(ELM327_TX_DO_CAN_CONFIG, &elm->cmds_todo);
 
 	elm327_kick_into_cmd_mode(elm);
 }
@@ -576,7 +576,7 @@ static void elm327_parse_line(struct elmcan *elm, size_t len)
 /* Assumes elm->lock taken. */
 static void elm327_handle_prompt(struct elmcan *elm)
 {
-	struct can_frame *frame = &elm->can_frame;
+	struct can_frame *frame = &elm->can_frame_to_send;
 	char local_txbuf[20];
 
 	if (!elm->cmds_todo) {
@@ -588,44 +588,44 @@ static void elm327_handle_prompt(struct elmcan *elm)
 	}
 
 	/* Reconfigure ELM327 step by step as indicated by elm->cmds_todo */
-	if (test_bit(TODO_INIT, &elm->cmds_todo)) {
+	if (test_bit(ELM327_TX_DO_INIT, &elm->cmds_todo)) {
 		strcpy(local_txbuf, *elm->next_init_cmd);
 
 		elm->next_init_cmd++;
 		if (!(*elm->next_init_cmd)) {
-			clear_bit(TODO_INIT, &elm->cmds_todo);
+			clear_bit(ELM327_TX_DO_INIT, &elm->cmds_todo);
 			/* Init finished. */
 		}
 
-	} else if (test_and_clear_bit(TODO_SILENT_MONITOR, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(ELM327_TX_DO_SILENT_MONITOR, &elm->cmds_todo)) {
 		sprintf(local_txbuf, "ATCSM%i\r",
 			!(!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)));
 
-	} else if (test_and_clear_bit(TODO_RESPONSES, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(ELM327_TX_DO_RESPONSES, &elm->cmds_todo)) {
 		sprintf(local_txbuf, "ATR%i\r",
 			!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
 
-	} else if (test_and_clear_bit(TODO_CAN_CONFIG, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_CONFIG, &elm->cmds_todo)) {
 		sprintf(local_txbuf, "ATPC\r");
-		set_bit(TODO_CAN_CONFIG_PART2, &elm->cmds_todo);
+		set_bit(ELM327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo);
 
-	} else if (test_and_clear_bit(TODO_CAN_CONFIG_PART2, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo)) {
 		sprintf(local_txbuf, "ATPB%04X\r",
 			elm->can_config);
 
-	} else if (test_and_clear_bit(TODO_CANID_29BIT_HIGH, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo)) {
 		sprintf(local_txbuf, "ATCP%02X\r",
 			(frame->can_id & CAN_EFF_MASK) >> 24);
 
-	} else if (test_and_clear_bit(TODO_CANID_29BIT_LOW, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo)) {
 		sprintf(local_txbuf, "ATSH%06X\r",
 			frame->can_id & CAN_EFF_MASK & ((1 << 24) - 1));
 
-	} else if (test_and_clear_bit(TODO_CANID_11BIT, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_11BIT, &elm->cmds_todo)) {
 		sprintf(local_txbuf, "ATSH%03X\r",
 			frame->can_id & CAN_SFF_MASK);
 
-	} else if (test_and_clear_bit(TODO_CAN_DATA, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_DATA, &elm->cmds_todo)) {
 		if (frame->can_id & CAN_RTR_FLAG) {
 			/* Send an RTR frame. Their DLC is fixed.
 			 * Some chips don't send them at all.
