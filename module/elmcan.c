@@ -50,6 +50,11 @@ MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
 #define N_DEVELOPMENT 29
 #endif
 
+/* Compatibility for Linux < 5.11 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,11,0)
+#define len can_dlc
+#endif
+
 #define ELM327_NAPI_WEIGHT 4
 
 #define ELM327_SIZE_RXBUF 256
@@ -483,7 +488,7 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 	 */
 
 	/* Read CAN data length */
-	frame->can_dlc = (hex_to_bin(elm->rxbuf[datastart - 2]) << 0);
+	frame->len = (hex_to_bin(elm->rxbuf[datastart - 2]) << 0);
 
 	/* Read CAN ID */
 	if (frame->can_id & CAN_EFF_FLAG) {
@@ -511,13 +516,13 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 	 * Note: RTR frames have a DLC, but no actual payload.
 	 */
 	if (!(frame->can_id & CAN_RTR_FLAG) &&
-	    (hexlen < frame->can_dlc * 3 + datastart)) {
+	    (hexlen < frame->len * 3 + datastart)) {
 		/* Incomplete frame.
 		 * Probably the ELM327's RS232 TX buffer was full.
 		 * Emit an error frame and exit.
 		 */
 		frame->can_id = CAN_ERR_FLAG | CAN_ERR_CRTL;
-		frame->can_dlc = CAN_ERR_DLC;
+		frame->len = CAN_ERR_DLC;
 		frame->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
 		elm327_feed_frame_to_netdev(elm, skb);
 
@@ -530,7 +535,7 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 	}
 
 	/* Parse the data nibbles. */
-	for (i = 0; i < frame->can_dlc; i++) {
+	for (i = 0; i < frame->len; i++) {
 		frame->data[i] = (hex_to_bin(elm->rxbuf[datastart + 3*i]) << 4)
 			       | (hex_to_bin(elm->rxbuf[datastart + 3*i + 1]));
 	}
@@ -634,7 +639,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 			/* Send a regular CAN data frame */
 			int i;
 
-			for (i = 0; i < frame->can_dlc; i++) {
+			for (i = 0; i < frame->len; i++) {
 				sprintf(&local_txbuf[2 * i], "%02X",
 					frame->data[i]);
 			}
@@ -871,7 +876,7 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 	spin_unlock(&elm->lock);
 
 	dev->stats.tx_packets++;
-	dev->stats.tx_bytes += frame->can_dlc;
+	dev->stats.tx_bytes += frame->len;
 
 	can_led_event(dev, CAN_LED_EVENT_TX);
 
