@@ -289,20 +289,10 @@ static void elm327_init(struct elmcan *elm)
 
 /* Assumes elm->lock taken. */
 static void elm327_feed_frame_to_netdev(struct elmcan *elm,
-					const struct can_frame *frame)
+					struct sk_buff *skb)
 {
-	struct can_frame *cf;
-	struct sk_buff *skb;
-
 	if (!netif_running(elm->dev))
 		return;
-
-	skb = alloc_can_skb(elm->dev, &cf);
-
-	if (!skb)
-		return;
-
-	memcpy(cf, frame, sizeof(struct can_frame));
 
 	/* Queue for NAPI pickup.
 	 * rx-offload will update stats and LEDs for us.
@@ -321,15 +311,18 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm,
  */
 static inline void elm327_hw_failure(struct elmcan *elm)
 {
-	struct can_frame frame;
+	struct can_frame *frame;
+	struct sk_buff *skb;
 
-	memset(&frame, 0, sizeof(frame));
-	frame.can_id = CAN_ERR_FLAG;
-	frame.can_dlc = CAN_ERR_DLC;
-	frame.data[5] = 'R';
-	frame.data[6] = 'I';
-	frame.data[7] = 'P';
-	elm327_feed_frame_to_netdev(elm, &frame);
+	skb = alloc_can_err_skb(elm->dev, &frame);
+	if (!skb)
+		return;
+
+	frame->data[5] = 'R';
+	frame->data[6] = 'I';
+	frame->data[7] = 'P';
+
+	elm327_feed_frame_to_netdev(elm, skb);
 
 	netdev_err(elm->dev, "ELM327 misbehaved. Blocking further communication.\n");
 
@@ -359,11 +352,15 @@ static inline int _len_memstrcmp(const u8 *mem, size_t mem_len, const char *str)
 /* Assumes elm->lock taken. */
 static void elm327_parse_error(struct elmcan *elm, size_t len)
 {
-	struct can_frame frame;
+	struct can_frame *frame;
+	struct sk_buff *skb;
 
-	memset(&frame, 0, sizeof(frame));
-	frame.can_id = CAN_ERR_FLAG;
-	frame.can_dlc = CAN_ERR_DLC;
+	skb = alloc_can_err_skb(elm->dev, &frame);
+	if (!skb)
+		/* It's okay to return here:
+		 * The outer parsing loop will drop this UART buffer.
+		 */
+		return;
 
 	/* Filter possible error messages based on length of RX'd line */
 	if (!_len_memstrcmp(elm->rxbuf, len, "UNABLE TO CONNECT")) {
@@ -374,25 +371,25 @@ static void elm327_parse_error(struct elmcan *elm, size_t len)
 		 * Otherwise, elm327_parse_frame() will heuristically
 		 * emit this kind of error frame instead.
 		 */
-		frame.can_id |= CAN_ERR_CRTL;
-		frame.data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
+		frame->can_id |= CAN_ERR_CRTL;
+		frame->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
 	} else if (!_len_memstrcmp(elm->rxbuf, len, "BUS ERROR")) {
-		frame.can_id |= CAN_ERR_BUSERROR;
+		frame->can_id |= CAN_ERR_BUSERROR;
 	} else if (!_len_memstrcmp(elm->rxbuf, len, "CAN ERROR")) {
-		frame.can_id |= CAN_ERR_PROT;
+		frame->can_id |= CAN_ERR_PROT;
 	} else if (!_len_memstrcmp(elm->rxbuf, len, "<RX ERROR")) {
-		frame.can_id |= CAN_ERR_PROT;
+		frame->can_id |= CAN_ERR_PROT;
 	} else if (!_len_memstrcmp(elm->rxbuf, len, "BUS BUSY")) {
-		frame.can_id |= CAN_ERR_PROT;
-		frame.data[2] = CAN_ERR_PROT_OVERLOAD;
+		frame->can_id |= CAN_ERR_PROT;
+		frame->data[2] = CAN_ERR_PROT_OVERLOAD;
 	} else if (!_len_memstrcmp(elm->rxbuf, len, "FB ERROR")) {
-		frame.can_id |= CAN_ERR_PROT;
-		frame.data[2] = CAN_ERR_PROT_TX;
+		frame->can_id |= CAN_ERR_PROT;
+		frame->data[2] = CAN_ERR_PROT_TX;
 	} else if (len == 5 && !_memstrcmp(elm->rxbuf, "ERR")) {
 		/* ERR is followed by two digits, hence line length 5 */
 		netdev_err(elm->dev, "ELM327 reported an ERR%c%c. Please power it off and on again.\n",
 			   elm->rxbuf[3], elm->rxbuf[4]);
-		frame.can_id |= CAN_ERR_CRTL;
+		frame->can_id |= CAN_ERR_CRTL;
 	} else {
 		/* Something else has happened.
 		 * Maybe garbage on the UART line.
@@ -400,7 +397,7 @@ static void elm327_parse_error(struct elmcan *elm, size_t len)
 		 */
 	}
 
-	elm327_feed_frame_to_netdev(elm, &frame);
+	elm327_feed_frame_to_netdev(elm, skb);
 }
 
 /* Parse CAN frames coming as ASCII from ELM327.
@@ -419,12 +416,15 @@ static void elm327_parse_error(struct elmcan *elm, size_t len)
  */
 static int elm327_parse_frame(struct elmcan *elm, size_t len)
 {
-	struct can_frame frame;
+	struct can_frame *frame;
+	struct sk_buff *skb;
 	int hexlen;
 	int datastart;
 	int i;
 
-	memset(&frame, 0, sizeof(frame));
+	skb = alloc_can_skb(elm->dev, &frame);
+	if (!skb)
+		return -ENOMEM;
 
 	/* Find first non-hex and non-space character:
 	 *  - In the simplest case, there is none.
@@ -459,10 +459,10 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 	if (elm->rxbuf[2] == ' ' && elm->rxbuf[5] == ' ' &&
 	    elm->rxbuf[8] == ' ' && elm->rxbuf[11] == ' ' &&
 	    elm->rxbuf[13] == ' ') {
-		frame.can_id = CAN_EFF_FLAG;
+		frame->can_id = CAN_EFF_FLAG;
 		datastart = 14;
 	} else if (elm->rxbuf[3] == ' ' && elm->rxbuf[5] == ' ') {
-		frame.can_id = 0;
+		frame->can_id = 0;
 		datastart = 6;
 	} else {
 		/* This is not a well-formatted data line.
@@ -483,44 +483,43 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 	 */
 
 	/* Read CAN data length */
-	frame.can_dlc = (hex_to_bin(elm->rxbuf[datastart - 2]) << 0);
+	frame->can_dlc = (hex_to_bin(elm->rxbuf[datastart - 2]) << 0);
 
 	/* Read CAN ID */
-	if (frame.can_id & CAN_EFF_FLAG) {
-		frame.can_id |= (hex_to_bin(elm->rxbuf[0]) << 28)
-			      | (hex_to_bin(elm->rxbuf[1]) << 24)
-			      | (hex_to_bin(elm->rxbuf[3]) << 20)
-			      | (hex_to_bin(elm->rxbuf[4]) << 16)
-			      | (hex_to_bin(elm->rxbuf[6]) << 12)
-			      | (hex_to_bin(elm->rxbuf[7]) << 8)
-			      | (hex_to_bin(elm->rxbuf[9]) << 4)
-			      | (hex_to_bin(elm->rxbuf[10]) << 0);
+	if (frame->can_id & CAN_EFF_FLAG) {
+		frame->can_id |= (hex_to_bin(elm->rxbuf[0]) << 28)
+			       | (hex_to_bin(elm->rxbuf[1]) << 24)
+			       | (hex_to_bin(elm->rxbuf[3]) << 20)
+			       | (hex_to_bin(elm->rxbuf[4]) << 16)
+			       | (hex_to_bin(elm->rxbuf[6]) << 12)
+			       | (hex_to_bin(elm->rxbuf[7]) << 8)
+			       | (hex_to_bin(elm->rxbuf[9]) << 4)
+			       | (hex_to_bin(elm->rxbuf[10]) << 0);
 	} else {
-		frame.can_id |= (hex_to_bin(elm->rxbuf[0]) << 8)
-			      | (hex_to_bin(elm->rxbuf[1]) << 4)
-			      | (hex_to_bin(elm->rxbuf[2]) << 0);
+		frame->can_id |= (hex_to_bin(elm->rxbuf[0]) << 8)
+			       | (hex_to_bin(elm->rxbuf[1]) << 4)
+			       | (hex_to_bin(elm->rxbuf[2]) << 0);
 	}
 
 	/* Check for RTR frame */
 	if (elm->rxfill >= hexlen + 3 &&
 	    !_memstrcmp(&elm->rxbuf[hexlen], "RTR")) {
-		frame.can_id |= CAN_RTR_FLAG;
+		frame->can_id |= CAN_RTR_FLAG;
 	}
 
 	/* Is the line long enough to hold the advertised payload?
 	 * Note: RTR frames have a DLC, but no actual payload.
 	 */
-	if (!(frame.can_id & CAN_RTR_FLAG) &&
-	    (hexlen < frame.can_dlc * 3 + datastart)) {
-		/* Incomplete frame. */
-
-		/* Probably the ELM327's RS232 TX buffer was full.
+	if (!(frame->can_id & CAN_RTR_FLAG) &&
+	    (hexlen < frame->can_dlc * 3 + datastart)) {
+		/* Incomplete frame.
+		 * Probably the ELM327's RS232 TX buffer was full.
 		 * Emit an error frame and exit.
 		 */
-		frame.can_id = CAN_ERR_FLAG | CAN_ERR_CRTL;
-		frame.can_dlc = CAN_ERR_DLC;
-		frame.data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
-		elm327_feed_frame_to_netdev(elm, &frame);
+		frame->can_id = CAN_ERR_FLAG | CAN_ERR_CRTL;
+		frame->can_dlc = CAN_ERR_DLC;
+		frame->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
+		elm327_feed_frame_to_netdev(elm, skb);
 
 		/* Signal failure to parse.
 		 * The line will be re-parsed as an error line, which will fail.
@@ -531,13 +530,13 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 	}
 
 	/* Parse the data nibbles. */
-	for (i = 0; i < frame.can_dlc; i++) {
-		frame.data[i] = (hex_to_bin(elm->rxbuf[datastart + 3*i]) << 4)
-			      | (hex_to_bin(elm->rxbuf[datastart + 3*i + 1]));
+	for (i = 0; i < frame->can_dlc; i++) {
+		frame->data[i] = (hex_to_bin(elm->rxbuf[datastart + 3*i]) << 4)
+			       | (hex_to_bin(elm->rxbuf[datastart + 3*i + 1]));
 	}
 
 	/* Feed the frame to the network layer. */
-	elm327_feed_frame_to_netdev(elm, &frame);
+	elm327_feed_frame_to_netdev(elm, skb);
 
 	return 0;
 }
