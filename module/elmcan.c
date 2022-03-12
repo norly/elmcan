@@ -843,9 +843,6 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 	struct elmcan *elm = netdev_priv(dev);
 	struct can_frame *frame = (struct can_frame *)skb->data;
 
-	if (skb->len != sizeof(struct can_frame))
-		goto out;
-
 	if (!netif_running(dev))  {
 		netdev_warn(elm->dev, "xmit: iface is down.\n");
 		goto out;
