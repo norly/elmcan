@@ -562,18 +562,13 @@ static void elm327_parse_line(struct elmcan *elm, size_t len)
 	}
 
 	/* Regular parsing */
-	switch (elm->state) {
-	case ELM_RECEIVING:
-		if (elm327_parse_frame(elm, len)) {
-			/* Parse an error line. */
-			elm327_parse_error(elm, len);
+	if (elm->state == ELM_RECEIVING
+	    && elm327_parse_frame(elm, len)) {
+		/* Parse an error line. */
+		elm327_parse_error(elm, len);
 
-			/* Start afresh. */
-			elm327_kick_into_cmd_mode(elm);
-		}
-		break;
-	default:
-		break;
+		/* Start afresh. */
+		elm327_kick_into_cmd_mode(elm);
 	}
 }
 
@@ -673,6 +668,7 @@ static void elm327_drop_bytes(struct elmcan *elm, size_t i)
 static void elm327_parse_rxbuf(struct elmcan *elm)
 {
 	size_t len;
+	int i;
 
 	switch (elm->state) {
 	case ELM_NOTINIT:
@@ -682,8 +678,6 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 	case ELM_GETDUMMYCHAR:
 	{
 		/* Wait for 'y' or '>' */
-		int i;
-
 		for (i = 0; i < elm->rxfill; i++) {
 			if (elm->rxbuf[i] == ELM327_DUMMY_CHAR) {
 				elm327_send(elm, "\r", 1);
@@ -847,11 +841,6 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 {
 	struct elmcan *elm = netdev_priv(dev);
 	struct can_frame *frame = (struct can_frame *)skb->data;
-
-	if (!netif_running(dev))  {
-		netdev_warn(elm->dev, "xmit: iface is down.\n");
-		goto out;
-	}
 
 	/* BHs are already disabled, so no spin_lock_bh().
 	 * See Documentation/networking/netdevices.txt
