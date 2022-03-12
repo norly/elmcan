@@ -319,20 +319,21 @@ static inline void elm327_hw_failure(struct elmcan *elm)
 	struct can_frame *frame;
 	struct sk_buff *skb;
 
+	elm->hw_failure = true;
+
+	elm->can.can_stats.bus_off++;
+	netif_stop_queue(elm->dev);
+	elm->can.state = CAN_STATE_BUS_OFF;
+	can_bus_off(elm->dev);
+
+	netdev_err(elm->dev, "ELM327 misbehaved. Blocking further communication.\n");
+
 	skb = alloc_can_err_skb(elm->dev, &frame);
 	if (!skb)
 		return;
 
-	frame->data[5] = 'R';
-	frame->data[6] = 'I';
-	frame->data[7] = 'P';
-
+	frame->can_id |= CAN_ERR_BUSOFF;
 	elm327_feed_frame_to_netdev(elm, skb);
-
-	netdev_err(elm->dev, "ELM327 misbehaved. Blocking further communication.\n");
-
-	elm->hw_failure = true;
-	can_bus_off(elm->dev);
 }
 
 /* Compare a buffer to a fixed string */
