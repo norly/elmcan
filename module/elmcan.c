@@ -121,10 +121,10 @@ struct elmcan {
 
 	/* State machine */
 	enum {
-		ELM_NOTINIT = 0,
-		ELM_GETDUMMYCHAR,
-		ELM_GETPROMPT,
-		ELM_RECEIVING,
+		ELM327_STATE_NOTINIT = 0,
+		ELM327_STATE_GETDUMMYCHAR,
+		ELM327_STATE_GETPROMPT,
+		ELM327_STATE_RECEIVING,
 	} state;
 
 	int drop_next_line;
@@ -193,10 +193,11 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
  */
 static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 {
-	if (elm->state != ELM_GETDUMMYCHAR && elm->state != ELM_GETPROMPT) {
+	if (elm->state != ELM327_STATE_GETDUMMYCHAR &&
+	    elm->state != ELM327_STATE_GETPROMPT) {
 		elm327_send(elm, ELM327_DUMMY_STRING, 1);
 
-		elm->state = ELM_GETDUMMYCHAR;
+		elm->state = ELM327_STATE_GETDUMMYCHAR;
 	}
 }
 
@@ -267,7 +268,7 @@ static char *elm327_init_script[] = {
 
 static void elm327_init(struct elmcan *elm)
 {
-	elm->state = ELM_NOTINIT;
+	elm->state = ELM327_STATE_NOTINIT;
 	elm->can_frame_to_send.can_id = 0x7df; /* ELM327 HW default */
 	elm->rxfill = 0;
 	elm->drop_next_line = 0;
@@ -563,7 +564,7 @@ static void elm327_parse_line(struct elmcan *elm, size_t len)
 	}
 
 	/* Regular parsing */
-	if (elm->state == ELM_RECEIVING
+	if (elm->state == ELM327_STATE_RECEIVING
 	    && elm327_parse_frame(elm, len)) {
 		/* Parse an error line. */
 		elm327_parse_error(elm, len);
@@ -582,7 +583,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 	if (!elm->cmds_todo) {
 		/* Enter CAN monitor mode */
 		elm327_send(elm, "ATMA\r", 5);
-		elm->state = ELM_RECEIVING;
+		elm->state = ELM327_STATE_RECEIVING;
 
 		return;
 	}
@@ -644,7 +645,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 		}
 
 		elm->drop_next_line = 1;
-		elm->state = ELM_RECEIVING;
+		elm->state = ELM327_STATE_RECEIVING;
 	}
 
 	elm327_send(elm, local_txbuf, strlen(local_txbuf));
@@ -672,17 +673,17 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 	int i;
 
 	switch (elm->state) {
-	case ELM_NOTINIT:
+	case ELM327_STATE_NOTINIT:
 		elm->rxfill = 0;
 		break;
 
-	case ELM_GETDUMMYCHAR:
+	case ELM327_STATE_GETDUMMYCHAR:
 	{
 		/* Wait for 'y' or '>' */
 		for (i = 0; i < elm->rxfill; i++) {
 			if (elm->rxbuf[i] == ELM327_DUMMY_CHAR) {
 				elm327_send(elm, "\r", 1);
-				elm->state = ELM_GETPROMPT;
+				elm->state = ELM327_STATE_GETPROMPT;
 				i++;
 				break;
 			} else if (elm327_is_ready_char(elm->rxbuf[i])) {
@@ -697,7 +698,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 		break;
 	}
 
-	case ELM_GETPROMPT:
+	case ELM327_STATE_GETPROMPT:
 		/* Wait for '>' */
 		if (elm327_is_ready_char(elm->rxbuf[elm->rxfill - 1]))
 			elm327_handle_prompt(elm);
@@ -705,7 +706,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 		elm->rxfill = 0;
 		break;
 
-	case ELM_RECEIVING:
+	case ELM327_STATE_RECEIVING:
 		/* Find <CR> delimiting feedback lines. */
 		for (len = 0;
 		     (len < elm->rxfill) && (elm->rxbuf[len] != '\r');
