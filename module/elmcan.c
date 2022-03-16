@@ -89,11 +89,11 @@ struct elmcan {
 	struct can_rx_offload offload;
 
 	/* TTY and netdev devices that we're bridging */
-	struct tty_struct	*tty;
-	struct net_device	*dev;
+	struct tty_struct *tty;
+	struct net_device *dev;
 
 	/* Per-channel lock */
-	spinlock_t		lock;
+	spinlock_t lock;
 
 	/* Keep track of how many things are using this struct.
 	 * Once it reaches 0, we are in the process of cleaning up,
@@ -102,18 +102,18 @@ struct elmcan {
 	 * decrement to 0, and refcount_dec() spills a WARN_ONCE in
 	 * that case.
 	 */
-	atomic_t		refcount;
+	atomic_t refcount;
 
 	/* Stop the channel on hardware failure.
 	 * Once this is true, nothing will be sent to the TTY.
 	 */
-	bool			hw_failure;
+	bool hw_failure;
 
 	/* TTY TX helpers */
-	struct work_struct	tx_work;	/* Flushes TTY TX buffer   */
-	unsigned char		*txbuf;
-	unsigned char		*txhead;	/* Pointer to next TX byte */
-	int			txleft;		/* Bytes left to TX */
+	struct work_struct tx_work;	/* Flushes TTY TX buffer   */
+	unsigned char *txbuf;
+	unsigned char *txhead;		/* Pointer to next TX byte */
+	int txleft;			/* Bytes left to TX */
 
 	/* TTY RX helpers */
 	unsigned char rxbuf[ELM327_SIZE_RXBUF];
