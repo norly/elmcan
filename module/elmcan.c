@@ -127,16 +127,14 @@ struct elmcan {
 		ELM327_STATE_RECEIVING,
 	} state;
 
-	int drop_next_line;
+	bool drop_next_line;
 
 	/* The CAN frame and config the ELM327 is sending/using,
 	 * or will send/use after finishing all cmds_todo
 	 */
 	struct can_frame can_frame_to_send;
-	unsigned short can_config;
-	unsigned long can_bitrate;
-	unsigned char can_bitrate_divisor;
-	int silent_monitoring;
+	u16 can_config;
+	u8 can_bitrate_divisor;
 
 	/* Things we have yet to send */
 	char **next_init_cmd;
