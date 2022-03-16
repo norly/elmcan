@@ -42,11 +42,6 @@
 #include <linux/can/led.h>
 #include <linux/can/rx-offload.h>
 
-MODULE_ALIAS_LDISC(N_DEVELOPMENT);
-MODULE_DESCRIPTION("ELM327 based CAN interface");
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
-
 /* Line discipline ID number.
  * N_DEVELOPMENT will likely be defined from Linux 5.18 onwards:
  * https://git.kernel.org/pub/scm/linux/kernel/git/gregkh/tty.git/commit/?h=tty-next&id=c2faf737abfb10f88f2d2612d573e9edc3c42c37
@@ -1287,3 +1282,8 @@ static void __exit elmcan_exit(void)
 
 module_init(elmcan_init);
 module_exit(elmcan_exit);
+
+MODULE_ALIAS_LDISC(N_DEVELOPMENT);
+MODULE_DESCRIPTION("ELM327 based CAN interface");
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
