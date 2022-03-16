@@ -11,7 +11,7 @@
  *                   Fred N. van Kempen <waltje@uwalt.nl.mugnet.org>
  */
 
-#define pr_fmt(fmt) "[elmcan] " fmt
+#define pr_fmt(fmt) "elmcan: " fmt
 
 #include <linux/init.h>
 #include <linux/module.h>
