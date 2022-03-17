@@ -755,6 +755,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 	}
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
 /* Dummy needed to use can_rx_offload */
 static struct sk_buff *elmcan_mailbox_read(struct can_rx_offload *offload,
 					   unsigned int n, u32 *timestamp,
@@ -764,6 +765,7 @@ static struct sk_buff *elmcan_mailbox_read(struct can_rx_offload *offload,
 
 	return ERR_PTR(-ENOBUFS);
 }
+#endif
 
 static int elmcan_netdev_open(struct net_device *dev)
 {
@@ -792,8 +794,12 @@ static int elmcan_netdev_open(struct net_device *dev)
 	elm327_init(elm);
 	spin_unlock_bh(&elm->lock);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
 	elm->offload.mailbox_read = elmcan_mailbox_read;
 	err = can_rx_offload_add_fifo(dev, &elm->offload, ELM327_NAPI_WEIGHT);
+#else
+	err = can_rx_offload_add_manual(dev, &elm->offload, ELM327_NAPI_WEIGHT);
+#endif
 	if (err) {
 		close_candev(dev);
 		return err;
