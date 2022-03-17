@@ -847,6 +847,9 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 	struct elmcan *elm = netdev_priv(dev);
 	struct can_frame *frame = (struct can_frame *)skb->data;
 
+	if (can_dropped_invalid_skb(dev, skb))
+		return NETDEV_TX_OK;
+
 	/* BHs are already disabled, so no spin_lock_bh().
 	 * See Documentation/networking/netdevices.txt
 	 */
