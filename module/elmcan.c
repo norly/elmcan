@@ -1117,7 +1117,6 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	INIT_WORK(&elm->tx_work, elmcan_ldisc_tx_worker);
 
 	/* Configure CAN metadata */
-	elm->can.state = CAN_STATE_STOPPED;
 	elm->can.bitrate_const = elmcan_bitrate_const;
 	elm->can.bitrate_const_cnt = ARRAY_SIZE(elmcan_bitrate_const);
 	elm->can.do_set_bittiming = elmcan_do_set_bittiming;
