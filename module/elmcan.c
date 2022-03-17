@@ -209,8 +209,8 @@ static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 	/* Schedule any necessary changes in ELM327's CAN configuration */
 	if (elm->can_frame_to_send.can_id != frame->can_id) {
 		/* Set the new CAN ID for transmission. */
-		if ((frame->can_id & CAN_EFF_FLAG)
-		    ^ (elm->can_frame_to_send.can_id & CAN_EFF_FLAG)) {
+		if ((frame->can_id & CAN_EFF_FLAG) ^
+		    (elm->can_frame_to_send.can_id & CAN_EFF_FLAG)) {
 			elm->can_config = (frame->can_id & CAN_EFF_FLAG
 						? 0
 						: ELM327_CAN_CONFIG_SEND_SFF)
@@ -469,7 +469,6 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 		frame->can_id = CAN_EFF_FLAG;
 		datastart = 14;
 	} else if (elm->rxbuf[3] == ' ' && elm->rxbuf[5] == ' ') {
-		frame->can_id = 0;
 		datastart = 6;
 	} else {
 		/* This is not a well-formatted data line.
