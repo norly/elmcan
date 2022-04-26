@@ -316,23 +316,21 @@ static inline void elm327_hw_failure(struct elmcan *elm)
 	elm327_feed_frame_to_netdev(elm, skb);
 }
 
-/* Compare a buffer to a fixed string */
-static inline int _memstrcmp(const u8 *mem, const char *str)
-{
-	return memcmp(mem, str, strlen(str));
-}
-
 /* Compare buffer to string length, then compare buffer to fixed string.
  * This ensures two things:
  *  - It flags cases where the fixed string is only the start of the
  *    buffer, rather than exactly all of it.
  *  - It avoids byte comparisons in case the length doesn't match.
+ *
+ * strncmp() cannot be used here because it accepts the following wrong case:
+ *   strncmp("CAN ER", "CAN ERROR", 6);
+ * This must fail, hence this helper function.
  */
-static inline int _len_memstrcmp(const u8 *mem, size_t mem_len, const char *str)
+static inline int check_len_then_cmp(const u8 *mem, size_t mem_len, const char *str)
 {
 	size_t str_len = strlen(str);
 
-	return (mem_len != str_len) || memcmp(mem, str, str_len);
+	return (mem_len == str_len) && !memcmp(mem, str, str_len);
 }
 
 static void elm327_parse_error(struct elmcan *elm, size_t len)
@@ -350,29 +348,29 @@ static void elm327_parse_error(struct elmcan *elm, size_t len)
 		return;
 
 	/* Filter possible error messages based on length of RX'd line */
-	if (!_len_memstrcmp(elm->rxbuf, len, "UNABLE TO CONNECT")) {
+	if (check_len_then_cmp(elm->rxbuf, len, "UNABLE TO CONNECT")) {
 		netdev_err(elm->dev,
 			   "ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
-	} else if (!_len_memstrcmp(elm->rxbuf, len, "BUFFER FULL")) {
+	} else if (check_len_then_cmp(elm->rxbuf, len, "BUFFER FULL")) {
 		/* This will only happen if the last data line was complete.
 		 * Otherwise, elm327_parse_frame() will heuristically
 		 * emit this kind of error frame instead.
 		 */
 		frame->can_id |= CAN_ERR_CRTL;
 		frame->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
-	} else if (!_len_memstrcmp(elm->rxbuf, len, "BUS ERROR")) {
+	} else if (check_len_then_cmp(elm->rxbuf, len, "BUS ERROR")) {
 		frame->can_id |= CAN_ERR_BUSERROR;
-	} else if (!_len_memstrcmp(elm->rxbuf, len, "CAN ERROR")) {
+	} else if (check_len_then_cmp(elm->rxbuf, len, "CAN ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
-	} else if (!_len_memstrcmp(elm->rxbuf, len, "<RX ERROR")) {
+	} else if (check_len_then_cmp(elm->rxbuf, len, "<RX ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
-	} else if (!_len_memstrcmp(elm->rxbuf, len, "BUS BUSY")) {
+	} else if (check_len_then_cmp(elm->rxbuf, len, "BUS BUSY")) {
 		frame->can_id |= CAN_ERR_PROT;
 		frame->data[2] = CAN_ERR_PROT_OVERLOAD;
-	} else if (!_len_memstrcmp(elm->rxbuf, len, "FB ERROR")) {
+	} else if (check_len_then_cmp(elm->rxbuf, len, "FB ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
 		frame->data[2] = CAN_ERR_PROT_TX;
-	} else if (len == 5 && !_memstrcmp(elm->rxbuf, "ERR")) {
+	} else if (len == 5 && !memcmp(elm->rxbuf, "ERR", 3)) {
 		/* ERR is followed by two digits, hence line length 5 */
 		netdev_err(elm->dev, "ELM327 reported an ERR%c%c. Please power it off and on again.\n",
 			   elm->rxbuf[3], elm->rxbuf[4]);
@@ -489,7 +487,7 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 
 	/* Check for RTR frame */
 	if (elm->rxfill >= hexlen + 3 &&
-	    !_memstrcmp(&elm->rxbuf[hexlen], "RTR")) {
+	    !memcmp(&elm->rxbuf[hexlen], "RTR", 3)) {
 		frame->can_id |= CAN_RTR_FLAG;
 	}
 
@@ -539,7 +537,7 @@ static void elm327_parse_line(struct elmcan *elm, size_t len)
 	if (elm->drop_next_line) {
 		elm->drop_next_line = 0;
 		return;
-	} else if (!_memstrcmp(elm->rxbuf, "AT")) {
+	} else if (!memcmp(elm->rxbuf, "AT", 2)) {
 		return;
 	}
 
