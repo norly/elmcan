@@ -1113,18 +1113,6 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 	free_candev(elm->dev);
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,16,0)
-static int elmcan_ldisc_hangup(struct tty_struct *tty)
-#else
-static void elmcan_ldisc_hangup(struct tty_struct *tty)
-#endif
-{
-	elmcan_ldisc_close(tty);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,16,0)
-	return 0;
-#endif
-}
-
 static int elmcan_ldisc_ioctl(struct tty_struct *tty,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0)
 			      struct file *file,
@@ -1161,7 +1149,6 @@ static struct tty_ldisc_ops elmcan_ldisc = {
 	.write_wakeup	= elmcan_ldisc_tx_wakeup,
 	.open		= elmcan_ldisc_open,
 	.close		= elmcan_ldisc_close,
-	.hangup		= elmcan_ldisc_hangup,
 	.ioctl		= elmcan_ldisc_ioctl,
 };
 
