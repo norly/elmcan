@@ -219,7 +219,9 @@ static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 	elm327_kick_into_cmd_mode(elm);
 }
 
-/* ELM327 initialisation sequence. */
+/* ELM327 initialisation sequence.
+ * The line length is limited by the buffer in elm327_handle_prompt().
+ */
 static char *elm327_init_script[] = {
 	"AT WS\r",        /* v1.0: Warm Start */
 	"AT PP FF OFF\r", /* v1.0: All Programmable Parameters Off */
@@ -555,7 +557,11 @@ static void elm327_parse_line(struct elmcan *elm, size_t len)
 static void elm327_handle_prompt(struct elmcan *elm)
 {
 	struct can_frame *frame = &elm->can_frame_to_send;
-	char local_txbuf[20];
+	/* Size this buffer for the largest ELM327 line we may generate,
+	 * which is currently an 8 byte CAN frame's payload hexdump.
+	 * Items in elm327_init_script must fit here, too!
+	 */
+	char local_txbuf[sizeof("0102030405060708\r")];
 
 	lockdep_assert_held(elm->lock);
 
@@ -569,7 +575,9 @@ static void elm327_handle_prompt(struct elmcan *elm)
 
 	/* Reconfigure ELM327 step by step as indicated by elm->cmds_todo */
 	if (test_bit(ELM327_TX_DO_INIT, &elm->cmds_todo)) {
-		strcpy(local_txbuf, *elm->next_init_cmd);
+		snprintf(local_txbuf, sizeof(local_txbuf),
+			"%s",
+			*elm->next_init_cmd);
 
 		elm->next_init_cmd++;
 		if (!(*elm->next_init_cmd)) {
@@ -578,31 +586,38 @@ static void elm327_handle_prompt(struct elmcan *elm)
 		}
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_SILENT_MONITOR, &elm->cmds_todo)) {
-		sprintf(local_txbuf, "ATCSM%i\r",
+		snprintf(local_txbuf, sizeof(local_txbuf),
+			"ATCSM%i\r",
 			!(!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)));
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_RESPONSES, &elm->cmds_todo)) {
-		sprintf(local_txbuf, "ATR%i\r",
+		snprintf(local_txbuf, sizeof(local_txbuf),
+			"ATR%i\r",
 			!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_CONFIG, &elm->cmds_todo)) {
-		sprintf(local_txbuf, "ATPC\r");
+		snprintf(local_txbuf, sizeof(local_txbuf),
+			"ATPC\r");
 		set_bit(ELM327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo);
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo)) {
-		sprintf(local_txbuf, "ATPB%04X\r",
+		snprintf(local_txbuf, sizeof(local_txbuf),
+			"ATPB%04X\r",
 			elm->can_config);
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo)) {
-		sprintf(local_txbuf, "ATCP%02X\r",
+		snprintf(local_txbuf, sizeof(local_txbuf),
+			"ATCP%02X\r",
 			(frame->can_id & CAN_EFF_MASK) >> 24);
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo)) {
-		sprintf(local_txbuf, "ATSH%06X\r",
+		snprintf(local_txbuf, sizeof(local_txbuf),
+			"ATSH%06X\r",
 			frame->can_id & CAN_EFF_MASK & ((1 << 24) - 1));
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_11BIT, &elm->cmds_todo)) {
-		sprintf(local_txbuf, "ATSH%03X\r",
+		snprintf(local_txbuf, sizeof(local_txbuf),
+			"ATSH%03X\r",
 			frame->can_id & CAN_SFF_MASK);
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_DATA, &elm->cmds_todo)) {
@@ -610,17 +625,20 @@ static void elm327_handle_prompt(struct elmcan *elm)
 			/* Send an RTR frame. Their DLC is fixed.
 			 * Some chips don't send them at all.
 			 */
-			sprintf(local_txbuf, "ATRTR\r");
+			snprintf(local_txbuf, sizeof(local_txbuf),
+				"ATRTR\r");
 		} else {
 			/* Send a regular CAN data frame */
 			int i;
 
 			for (i = 0; i < frame->len; i++) {
-				sprintf(&local_txbuf[2 * i], "%02X",
+				snprintf(&local_txbuf[2 * i], sizeof(local_txbuf),
+					"%02X",
 					frame->data[i]);
 			}
 
-			sprintf(&local_txbuf[2 * i], "\r");
+			snprintf(&local_txbuf[2 * i], sizeof(local_txbuf),
+				"\r");
 		}
 
 		elm->drop_next_line = 1;
