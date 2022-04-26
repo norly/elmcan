@@ -96,15 +96,6 @@ struct elmcan {
 	/* Per-channel lock */
 	spinlock_t lock;
 
-	/* Keep track of how many things are using this struct.
-	 * Once it reaches 0, we are in the process of cleaning up,
-	 * and new operations will be cancelled immediately.
-	 * Use atomic_t rather than refcount_t because we deliberately
-	 * decrement to 0, and refcount_dec() spills a WARN_ONCE in
-	 * that case.
-	 */
-	atomic_t refcount;
-
 	/* Stop the channel on hardware failure.
 	 * Once this is true, nothing will be sent to the TTY.
 	 */
@@ -112,12 +103,12 @@ struct elmcan {
 
 	/* TTY TX helpers */
 	struct work_struct tx_work;	/* Flushes TTY TX buffer   */
-	unsigned char *txbuf;
-	unsigned char *txhead;		/* Pointer to next TX byte */
-	int txleft;			/* Bytes left to TX */
+	u8 *txbuf;			/* Pointer to our TX buffer */
+	u8 *txhead;			/* Pointer to next TX byte */
+	unsigned txleft;		/* Bytes left to TX */
 
 	/* TTY RX helpers */
-	unsigned char rxbuf[ELM327_SIZE_RXBUF];
+	u8 rxbuf[ELM327_SIZE_RXBUF];
 	int rxfill;
 
 	/* State machine */
@@ -142,18 +133,11 @@ struct elmcan {
 	unsigned long cmds_todo;
 };
 
-/* A lock for all tty->disc_data handled by this ldisc.
- * This is to prevent a case where tty->disc_data is set to NULL,
- * yet someone is still trying to dereference it.
- * Without this, we cannot do a clean shutdown.
- */
-static DEFINE_SPINLOCK(elmcan_discdata_lock);
-
 static inline void elm327_hw_failure(struct elmcan *elm);
 
 static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 {
-	int actual;
+	int written;
 
 	lockdep_assert_held(elm->lock);
 
@@ -162,17 +146,8 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 
 	memcpy(elm->txbuf, buf, len);
 
-	/* Order of next two lines is *very* important.
-	 * When we are sending a little amount of data,
-	 * the transfer may be completed inside the ops->write()
-	 * routine, because it's running with interrupts enabled.
-	 * In this case we *never* got WRITE_WAKEUP event,
-	 * if we did not request it before write operation.
-	 *       14 Oct 1994  Dmitry Gorodchanin.
-	 */
-	set_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
-	actual = elm->tty->ops->write(elm->tty, elm->txbuf, len);
-	if (actual < 0) {
+	written = elm->tty->ops->write(elm->tty, elm->txbuf, len);
+	if (written < 0) {
 		netdev_err(elm->dev,
 			   "Failed to write to tty %s.\n",
 			   elm->tty->name);
@@ -180,8 +155,13 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 		return;
 	}
 
-	elm->txleft = len - actual;
-	elm->txhead = elm->txbuf + actual;
+	elm->txleft = len - written;
+	elm->txhead = elm->txbuf + written;
+
+	if (!elm->txleft)
+		netif_wake_queue(elm->dev);
+	else
+		set_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 }
 
 /* Take the ELM327 out of almost any state and back into command mode.
@@ -895,39 +875,6 @@ static const struct net_device_ops elmcan_netdev_ops = {
 	.ndo_change_mtu	= can_change_mtu,
 };
 
-/* Get a reference to our struct, taking into account locks/refcounts.
- * This is to ensure ordering in case we are shutting down, and to ensure
- * there is a refcount at all (otherwise tty->disc_data may be freed and
- * before we increment the refcount).
- * Use this for anything that can race against elmcan_ldisc_close().
- */
-static struct elmcan *get_elm(struct tty_struct *tty)
-{
-	struct elmcan *elm;
-	bool got_ref;
-
-	spin_lock_bh(&elmcan_discdata_lock);
-	elm = (struct elmcan *)tty->disc_data;
-
-	if (!elm) {
-		spin_unlock_bh(&elmcan_discdata_lock);
-		return NULL;
-	}
-
-	got_ref = atomic_inc_not_zero(&elm->refcount);
-	spin_unlock_bh(&elmcan_discdata_lock);
-
-	if (!got_ref)
-		return NULL;
-
-	return elm;
-}
-
-static void put_elm(struct elmcan *elm)
-{
-	atomic_dec(&elm->refcount);
-}
-
 static bool elmcan_is_valid_rx_char(char c)
 {
 	return (isdigit(c) ||
@@ -956,10 +903,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 			    const unsigned char *cp, const char *fp, int count)
 #endif
 {
-	struct elmcan *elm = get_elm(tty);
-
-	if (!elm)
-		return;
+	struct elmcan *elm = (struct elmcan *)tty->disc_data;
 
 	spin_lock_bh(&elm->lock);
 
@@ -1011,7 +955,6 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 
 out:
 	spin_unlock_bh(&elm->lock);
-	put_elm(elm);
 }
 
 /* Write out remaining transmit buffer.
@@ -1019,59 +962,44 @@ out:
  */
 static void elmcan_ldisc_tx_worker(struct work_struct *work)
 {
-	/* No need to use get_elm() here, as we'll always flush workers
-	 * before destroying the elmcan object.
-	 */
 	struct elmcan *elm = container_of(work, struct elmcan, tx_work);
-	ssize_t actual;
+	ssize_t written;
+
+	if (elm->hw_failure)
+		return;
 
 	spin_lock_bh(&elm->lock);
-	if (elm->hw_failure) {
-		spin_unlock_bh(&elm->lock);
-		return;
+
+	if (elm->txleft) {
+		written = elm->tty->ops->write(elm->tty, elm->txhead, elm->txleft);
+		if (written < 0) {
+			netdev_err(elm->dev,
+				   "Failed to write to tty %s.\n",
+				   elm->tty->name);
+			elm327_hw_failure(elm);
+			spin_unlock_bh(&elm->lock);
+			return;
+		} else {
+			elm->txleft -= written;
+			elm->txhead += written;
+		}
 	}
 
-	if (!elm->tty || !netif_running(elm->dev)) {
-		spin_unlock_bh(&elm->lock);
-		return;
-	}
-
-	if (elm->txleft <= 0)  {
-		/* Our TTY write buffer is empty:
-		 * Allow netdev to hand us another packet
-		 */
+	if (!elm->txleft)  {
 		clear_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 		spin_unlock_bh(&elm->lock);
 		netif_wake_queue(elm->dev);
-		return;
-	}
-
-	actual = elm->tty->ops->write(elm->tty, elm->txhead, elm->txleft);
-	if (actual < 0) {
-		netdev_err(elm->dev,
-			   "Failed to write to tty %s.\n",
-			   elm->tty->name);
-		elm327_hw_failure(elm);
+	} else {
 		spin_unlock_bh(&elm->lock);
-		return;
 	}
-
-	elm->txleft -= actual;
-	elm->txhead += actual;
-	spin_unlock_bh(&elm->lock);
 }
 
 /* Called by the driver when there's room for more data. */
 static void elmcan_ldisc_tx_wakeup(struct tty_struct *tty)
 {
-	struct elmcan *elm = get_elm(tty);
-
-	if (!elm)
-		return;
+	struct elmcan *elm = (struct elmcan *)tty->disc_data;
 
 	schedule_work(&elm->tx_work);
-
-	put_elm(elm);
 }
 
 /* ELM327 can only handle bitrates that are integer divisors of 500 kHz,
@@ -1122,7 +1050,6 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	tty->receive_room = 65536; /* We don't flow control */
 	elm->txleft = 0; /* Clear TTY TX buffer */
 	spin_lock_init(&elm->lock);
-	atomic_set(&elm->refcount, 1);
 	INIT_WORK(&elm->tx_work, elmcan_ldisc_tx_worker);
 
 	/* Configure CAN metadata */
@@ -1165,26 +1092,13 @@ out_err:
  */
 static void elmcan_ldisc_close(struct tty_struct *tty)
 {
-	struct elmcan *elm = get_elm(tty);
-
-	if (!elm)
-		return;
+	struct elmcan *elm = (struct elmcan *)tty->disc_data;
 
 	/* unregister_netdev() calls .ndo_stop() so we don't have to. */
 	unregister_candev(elm->dev);
 
-	/* Decrease the refcount twice, once for our own get_elm(),
-	 * and once to remove the count of 1 that we set in _open().
-	 * Once it reaches 0, we can safely destroy it.
-	 */
-	put_elm(elm);
-	put_elm(elm);
-
-	while (atomic_read(&elm->refcount) > 0)
-		msleep_interruptible(10);
-
-	/* At this point, all ldisc calls to us have become no-ops. */
-
+	/* Ensure that our worker won't be rescheduled */
+	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 	flush_work(&elm->tx_work);
 
 	/* Mark channel as dead */
@@ -1217,29 +1131,20 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty,
 #endif
 			      unsigned int cmd, unsigned long arg)
 {
-	struct elmcan *elm = get_elm(tty);
+	struct elmcan *elm = (struct elmcan *)tty->disc_data;
 	unsigned int tmp;
-
-	if (!elm)
-		return -EINVAL;
 
 	switch (cmd) {
 	case SIOCGIFNAME:
 		tmp = strnlen(elm->dev->name, IFNAMSIZ - 1) + 1;
-		if (copy_to_user((void __user *)arg, elm->dev->name, tmp)) {
-			put_elm(elm);
+		if (copy_to_user((void __user *)arg, elm->dev->name, tmp))
 			return -EFAULT;
-		}
-
-		put_elm(elm);
 		return 0;
 
 	case SIOCSIFHWADDR:
-		put_elm(elm);
 		return -EINVAL;
 
 	default:
-		put_elm(elm);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,16,0)
 		return tty_mode_ioctl(tty, file, cmd, arg);
 #else
