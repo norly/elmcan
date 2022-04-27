@@ -771,16 +771,18 @@ static int elmcan_netdev_open(struct net_device *dev)
 	int err;
 
 	spin_lock_bh(&elm->lock);
-	if (elm->uart_side_failure) {
-		netdev_err(elm->dev, "Refusing to open interface after a hardware fault has been detected.\n");
-		spin_unlock_bh(&elm->lock);
-		return -EIO;
-	}
 
 	if (!elm->tty) {
 		spin_unlock_bh(&elm->lock);
 		return -ENODEV;
 	}
+
+	if (elm->uart_side_failure)
+		netdev_warn(elm->dev, "Reopening netdev after a UART side fault has been detected.\n");
+
+	/* Clear TTY buffers */
+	elm->rxfill = 0;
+	elm->txleft = 0;
 
 	/* open_candev() checks for elm->can.bittiming.bitrate != 0 */
 	err = open_candev(dev);
@@ -816,24 +818,19 @@ static int elmcan_netdev_close(struct net_device *dev)
 {
 	struct elmcan *elm = netdev_priv(dev);
 
-	netif_stop_queue(dev);
-
+	/* Interrupt whatever the ELM327 is doing right now */
 	spin_lock_bh(&elm->lock);
-	if (elm->tty) {
-		/* Interrupt whatever we're doing right now */
-		elm327_send(elm, ELM327_DUMMY_STRING, 1);
+	elm327_send(elm, ELM327_DUMMY_STRING, 1);
+	spin_unlock_bh(&elm->lock);
 
-		/* Clear the wakeup bit, as the netdev will be down and thus
-		 * the wakeup handler won't clear it
-		 */
-		clear_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
+	/* Give UART one final chance to flush.
+	 * This may netif_wake_queue(), so don't netif_stop_queue()
+	 * before flushing the worker.
+	 */
+	clear_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
+	flush_work(&elm->tx_work);
 
-		spin_unlock_bh(&elm->lock);
-
-		flush_work(&elm->tx_work);
-	} else {
-		spin_unlock_bh(&elm->lock);
-	}
+	netif_stop_queue(dev);
 
 	can_rx_offload_disable(&elm->offload);
 	elm->can.state = CAN_STATE_STOPPED;
@@ -1066,7 +1063,6 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 
 	/* Configure TTY interface */
 	tty->receive_room = 65536; /* We don't flow control */
-	elm->txleft = 0; /* Clear TTY TX buffer */
 	spin_lock_init(&elm->lock);
 	INIT_WORK(&elm->tx_work, elmcan_ldisc_tx_worker);
 
@@ -1112,12 +1108,11 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 {
 	struct elmcan *elm = (struct elmcan *)tty->disc_data;
 
-	/* unregister_netdev() calls .ndo_stop() so we don't have to. */
+	/* unregister_netdev() calls .ndo_stop() so we don't have to.
+	 * Our .ndo_stop() also flushes the TTY write wakeup handler,
+	 * so we can safely set elm->tty = NULL after this.
+	 */
 	unregister_candev(elm->dev);
-
-	/* Ensure that our worker won't be rescheduled */
-	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
-	flush_work(&elm->tx_work);
 
 	/* Mark channel as dead */
 	spin_lock_bh(&elm->lock);
