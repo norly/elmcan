@@ -96,10 +96,12 @@ struct elmcan {
 	/* Per-channel lock */
 	spinlock_t lock;
 
-	/* Stop the channel on hardware failure.
+	/* Stop the channel on UART side hardware failure, e.g. stray
+	 * characters or neverending lines. This may be caused by bad
+	 * UART wiring, a bad ELM327, a bad UART bridge...
 	 * Once this is true, nothing will be sent to the TTY.
 	 */
-	bool hw_failure;
+	bool uart_side_failure;
 
 	/* TTY TX helpers */
 	struct work_struct tx_work;	/* Flushes TTY TX buffer   */
@@ -133,7 +135,7 @@ struct elmcan {
 	unsigned long cmds_todo;
 };
 
-static inline void elm327_hw_failure(struct elmcan *elm);
+static inline void elm327_uart_side_failure(struct elmcan *elm);
 
 static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 {
@@ -141,7 +143,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 
 	lockdep_assert_held(elm->lock);
 
-	if (elm->hw_failure)
+	if (elm->uart_side_failure)
 		return;
 
 	memcpy(elm->txbuf, buf, len);
@@ -151,7 +153,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 		netdev_err(elm->dev,
 			   "Failed to write to tty %s.\n",
 			   elm->tty->name);
-		elm327_hw_failure(elm);
+		elm327_uart_side_failure(elm);
 		return;
 	}
 
@@ -294,14 +296,14 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm,
 }
 
 /* Called when we're out of ideas and just want it all to end. */
-static inline void elm327_hw_failure(struct elmcan *elm)
+static inline void elm327_uart_side_failure(struct elmcan *elm)
 {
 	struct can_frame *frame;
 	struct sk_buff *skb;
 
 	lockdep_assert_held(elm->lock);
 
-	elm->hw_failure = true;
+	elm->uart_side_failure = true;
 
 	elm->can.can_stats.bus_off++;
 	netif_stop_queue(elm->dev);
@@ -719,7 +721,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 			 */
 			netdev_err(elm->dev,
 				   "RX buffer overflow. Faulty ELM327 or UART?\n");
-			elm327_hw_failure(elm);
+			elm327_uart_side_failure(elm);
 			break;
 		} else if (len == elm->rxfill) {
 			if (elm327_is_ready_char(elm->rxbuf[elm->rxfill - 1])) {
@@ -769,7 +771,7 @@ static int elmcan_netdev_open(struct net_device *dev)
 	int err;
 
 	spin_lock_bh(&elm->lock);
-	if (elm->hw_failure) {
+	if (elm->uart_side_failure) {
 		netdev_err(elm->dev, "Refusing to open interface after a hardware fault has been detected.\n");
 		spin_unlock_bh(&elm->lock);
 		return -EIO;
@@ -860,10 +862,10 @@ static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
 	/* We shouldn't get here after a hardware fault:
 	 * can_bus_off() calls netif_carrier_off()
 	 */
-	WARN_ON_ONCE(elm->hw_failure);
+	WARN_ON_ONCE(elm->uart_side_failure);
 
 	if (!elm->tty ||
-	    elm->hw_failure ||
+	    elm->uart_side_failure ||
 	    elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY) {
 		spin_unlock(&elm->lock);
 		goto out;
@@ -923,14 +925,14 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 
 	spin_lock_bh(&elm->lock);
 
-	if (elm->hw_failure)
+	if (elm->uart_side_failure)
 		goto out;
 
 	while (count-- && elm->rxfill < ELM327_SIZE_RXBUF) {
 		if (fp && *fp++) {
 			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
 
-			elm327_hw_failure(elm);
+			elm327_uart_side_failure(elm);
 
 			goto out;
 		}
@@ -948,7 +950,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 				netdev_err(elm->dev,
 					   "Received illegal character %02x.\n",
 					   *cp);
-				elm327_hw_failure(elm);
+				elm327_uart_side_failure(elm);
 
 				goto out;
 			}
@@ -962,7 +964,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 	if (count >= 0) {
 		netdev_err(elm->dev, "Receive buffer overflowed. Bad chip or wiring?");
 
-		elm327_hw_failure(elm);
+		elm327_uart_side_failure(elm);
 
 		goto out;
 	}
@@ -981,7 +983,7 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 	struct elmcan *elm = container_of(work, struct elmcan, tx_work);
 	ssize_t written;
 
-	if (elm->hw_failure)
+	if (elm->uart_side_failure)
 		return;
 
 	spin_lock_bh(&elm->lock);
@@ -992,7 +994,7 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 			netdev_err(elm->dev,
 				   "Failed to write to tty %s.\n",
 				   elm->tty->name);
-			elm327_hw_failure(elm);
+			elm327_uart_side_failure(elm);
 			spin_unlock_bh(&elm->lock);
 			return;
 		} else {
