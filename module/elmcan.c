@@ -71,7 +71,7 @@
 #define ELM327_READY_CHAR '>'
 
 /* Bits in elm->cmds_todo */
-enum ELM327_TX_DO_BITS {
+enum elm327_to_to_do_bits {
 	ELM327_TX_DO_CAN_DATA = 0,
 	ELM327_TX_DO_CANID_11BIT,
 	ELM327_TX_DO_CANID_29BIT_LOW,
