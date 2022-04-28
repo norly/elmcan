@@ -58,7 +58,7 @@
 
 #define ELM327_NAPI_WEIGHT 4
 
-#define ELM327_SIZE_RXBUF 256
+#define ELM327_SIZE_RXBUF 224
 #define ELM327_SIZE_TXBUF 32
 
 #define ELM327_CAN_CONFIG_SEND_SFF           0x8000
@@ -89,29 +89,22 @@ struct elmcan {
 
 	struct can_rx_offload offload;
 
+	/* TTY buffers */
+	u8 rxbuf[ELM327_SIZE_RXBUF];
+	u8 txbuf[ELM327_SIZE_TXBUF] ____cacheline_aligned;
+
+	/* TTY buffer accounting */
+	struct work_struct tx_work;	/* Flushes TTY TX buffer */
+	u8 *txhead;			/* Next TX byte */
+	unsigned txleft;		/* Bytes left to TX */
+	int rxfill;			/* Bytes already RX'd in buffer */
+
 	/* TTY and netdev devices that we're bridging */
 	struct tty_struct *tty;
 	struct net_device *dev;
 
 	/* Per-channel lock */
 	spinlock_t lock;
-
-	/* Stop the channel on UART side hardware failure, e.g. stray
-	 * characters or neverending lines. This may be caused by bad
-	 * UART wiring, a bad ELM327, a bad UART bridge...
-	 * Once this is true, nothing will be sent to the TTY.
-	 */
-	bool uart_side_failure;
-
-	/* TTY TX helpers */
-	struct work_struct tx_work;	/* Flushes TTY TX buffer   */
-	u8 *txbuf;			/* Pointer to our TX buffer */
-	u8 *txhead;			/* Pointer to next TX byte */
-	unsigned txleft;		/* Bytes left to TX */
-
-	/* TTY RX helpers */
-	u8 rxbuf[ELM327_SIZE_RXBUF];
-	int rxfill;
 
 	/* State machine */
 	enum {
@@ -121,7 +114,9 @@ struct elmcan {
 		ELM327_STATE_RECEIVING,
 	} state;
 
-	bool drop_next_line;
+	/* Things we have yet to send */
+	char **next_init_cmd;
+	unsigned long cmds_todo;
 
 	/* The CAN frame and config the ELM327 is sending/using,
 	 * or will send/use after finishing all cmds_todo
@@ -130,9 +125,15 @@ struct elmcan {
 	u16 can_config;
 	u8 can_bitrate_divisor;
 
-	/* Things we have yet to send */
-	char **next_init_cmd;
-	unsigned long cmds_todo;
+	/* Parser state */
+	bool drop_next_line;
+
+	/* Stop the channel on UART side hardware failure, e.g. stray
+	 * characters or neverending lines. This may be caused by bad
+	 * UART wiring, a bad ELM327, a bad UART bridge...
+	 * Once this is true, nothing will be sent to the TTY.
+	 */
+	bool uart_side_failure;
 };
 
 static inline void elm327_uart_side_failure(struct elmcan *elm);
@@ -1055,12 +1056,6 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 		return -ENFILE;
 	elm = netdev_priv(dev);
 
-	elm->txbuf = kmalloc(ELM327_SIZE_TXBUF, GFP_KERNEL);
-	if (!elm->txbuf) {
-		err = -ENOMEM;
-		goto out_err;
-	}
-
 	/* Configure TTY interface */
 	tty->receive_room = 65536; /* We don't flow control */
 	spin_lock_init(&elm->lock);
@@ -1092,7 +1087,6 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	return 0;
 
 out_err:
-	kfree(elm->txbuf);
 	free_candev(elm->dev);
 	return err;
 }
@@ -1122,7 +1116,6 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 
 	netdev_info(elm->dev, "elmcan off %s.\n", tty->name);
 
-	kfree(elm->txbuf);
 	free_candev(elm->dev);
 }
 
