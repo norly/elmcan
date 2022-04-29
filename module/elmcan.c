@@ -161,9 +161,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 	elm->txleft = len - written;
 	elm->txhead = elm->txbuf + written;
 
-	if (!elm->txleft)
-		netif_wake_queue(elm->dev);
-	else
+	if (elm->txleft)
 		set_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 }
 
@@ -573,6 +571,11 @@ static void elm327_handle_prompt(struct elmcan *elm)
 		elm327_send(elm, "ATMA\r", 5);
 		elm->state = ELM327_STATE_RECEIVING;
 
+		/* We will be in the default state once this command is
+		 * send, so enable the TX packet queue.
+		 */
+		netif_wake_queue(elm->dev);
+
 		return;
 	}
 
@@ -646,6 +649,11 @@ static void elm327_handle_prompt(struct elmcan *elm)
 
 		elm->drop_next_line = 1;
 		elm->state = ELM327_STATE_RECEIVING;
+
+		/* We will be in the default state once this command is
+		 * send, so enable the TX packet queue.
+		 */
+		netif_wake_queue(elm->dev);
 	}
 
 	elm327_send(elm, local_txbuf, strlen(local_txbuf));
@@ -824,14 +832,11 @@ static int elmcan_netdev_close(struct net_device *dev)
 	elm327_send(elm, ELM327_DUMMY_STRING, 1);
 	spin_unlock_bh(&elm->lock);
 
-	/* Give UART one final chance to flush.
-	 * This may netif_wake_queue(), so don't netif_stop_queue()
-	 * before flushing the worker.
-	 */
+	netif_stop_queue(dev);
+
+	/* Give UART one final chance to flush. */
 	clear_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 	flush_work(&elm->tx_work);
-
-	netif_stop_queue(dev);
 
 	can_rx_offload_disable(&elm->offload);
 	elm->can.state = CAN_STATE_STOPPED;
@@ -1004,7 +1009,6 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 	if (!elm->txleft)  {
 		clear_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 		spin_unlock_bh(&elm->lock);
-		netif_wake_queue(elm->dev);
 	} else {
 		spin_unlock_bh(&elm->lock);
 	}
