@@ -2,8 +2,7 @@
 /* ELM327 based CAN interface driver (tty line discipline)
  *
  * This driver started as a derivative of linux/drivers/net/can/slcan.c
- * and my thanks go to the original authors for their inspiration, even
- * after almost none of their code is left.
+ * and my thanks go to the original authors for their inspiration.
  *
  * elmcan.c Author : Max Staudt <max-linux@enpas.org>
  * slcan.c Author  : Oliver Hartkopp <socketcan@hartkopp.net>
