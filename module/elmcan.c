@@ -44,8 +44,8 @@
 #include <linux/can/rx-offload.h>
 
 /* Line discipline ID number.
- * N_DEVELOPMENT will likely be defined from Linux 5.18 onwards:
- * https://git.kernel.org/pub/scm/linux/kernel/git/gregkh/tty.git/commit/?h=tty-next&id=c2faf737abfb10f88f2d2612d573e9edc3c42c37
+ * Starting with Linux v5.18-rc1, N_DEVELOPMENT is defined as 29:
+ * https://github.com/torvalds/linux/commit/c2faf737abfb10f88f2d2612d573e9edc3c42c37
  */
 #ifndef N_DEVELOPMENT
 #define N_DEVELOPMENT 29
