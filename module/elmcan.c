@@ -303,6 +303,8 @@ static inline void elm327_uart_side_failure(struct elmcan *elm)
 
 	elm->uart_side_failure = true;
 
+	clear_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
+
 	elm->can.can_stats.bus_off++;
 	netif_stop_queue(elm->dev);
 	elm->can.state = CAN_STATE_BUS_OFF;
