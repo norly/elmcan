@@ -148,6 +148,15 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 
 	memcpy(elm->txbuf, buf, len);
 
+	/* Order of next two lines is *very* important.
+	 * When we are sending a little amount of data,
+	 * the transfer may be completed inside the ops->write()
+	 * routine, because it's running with interrupts enabled.
+	 * In this case we *never* got WRITE_WAKEUP event,
+	 * if we did not request it before write operation.
+	 *       14 Oct 1994  Dmitry Gorodchanin.
+	 */
+	set_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 	written = elm->tty->ops->write(elm->tty, elm->txbuf, len);
 	if (written < 0) {
 		netdev_err(elm->dev,
@@ -159,9 +168,6 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 
 	elm->txleft = len - written;
 	elm->txhead = elm->txbuf + written;
-
-	if (elm->txleft)
-		set_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 }
 
 /* Take the ELM327 out of almost any state and back into command mode.
@@ -573,7 +579,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 		elm->state = ELM327_STATE_RECEIVING;
 
 		/* We will be in the default state once this command is
-		 * send, so enable the TX packet queue.
+		 * sent, so enable the TX packet queue.
 		 */
 		netif_wake_queue(elm->dev);
 
@@ -652,7 +658,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 		elm->state = ELM327_STATE_RECEIVING;
 
 		/* We will be in the default state once this command is
-		 * send, so enable the TX packet queue.
+		 * sent, so enable the TX packet queue.
 		 */
 		netif_wake_queue(elm->dev);
 	}
