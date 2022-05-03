@@ -544,8 +544,8 @@ static void elm327_parse_line(struct elmcan *elm, size_t len)
 	}
 
 	/* Regular parsing */
-	if (elm->state == ELM327_STATE_RECEIVING
-	    && elm327_parse_frame(elm, len)) {
+	if (elm->state == ELM327_STATE_RECEIVING &&
+	    elm327_parse_frame(elm, len)) {
 		/* Parse an error line. */
 		elm327_parse_error(elm, len);
 
@@ -581,8 +581,8 @@ static void elm327_handle_prompt(struct elmcan *elm)
 	/* Reconfigure ELM327 step by step as indicated by elm->cmds_todo */
 	if (test_bit(ELM327_TX_DO_INIT, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
-			"%s",
-			*elm->next_init_cmd);
+			 "%s",
+			 *elm->next_init_cmd);
 
 		elm->next_init_cmd++;
 		if (!(*elm->next_init_cmd)) {
@@ -592,38 +592,38 @@ static void elm327_handle_prompt(struct elmcan *elm)
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_SILENT_MONITOR, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
-			"ATCSM%i\r",
-			!(!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)));
+			 "ATCSM%i\r",
+			 !(!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)));
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_RESPONSES, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
-			"ATR%i\r",
-			!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
+			 "ATR%i\r",
+			 !(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_CONFIG, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
-			"ATPC\r");
+			 "ATPC\r");
 		set_bit(ELM327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo);
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
-			"ATPB%04X\r",
-			elm->can_config);
+			 "ATPB%04X\r",
+			 elm->can_config);
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
-			"ATCP%02X\r",
-			(frame->can_id & CAN_EFF_MASK) >> 24);
+			 "ATCP%02X\r",
+			 (frame->can_id & CAN_EFF_MASK) >> 24);
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
-			"ATSH%06X\r",
-			frame->can_id & CAN_EFF_MASK & ((1 << 24) - 1));
+			 "ATSH%06X\r",
+			 frame->can_id & CAN_EFF_MASK & ((1 << 24) - 1));
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_11BIT, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
-			"ATSH%03X\r",
-			frame->can_id & CAN_SFF_MASK);
+			 "ATSH%03X\r",
+			 frame->can_id & CAN_SFF_MASK);
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_DATA, &elm->cmds_todo)) {
 		if (frame->can_id & CAN_RTR_FLAG) {
@@ -631,19 +631,19 @@ static void elm327_handle_prompt(struct elmcan *elm)
 			 * Some chips don't send them at all.
 			 */
 			snprintf(local_txbuf, sizeof(local_txbuf),
-				"ATRTR\r");
+				 "ATRTR\r");
 		} else {
 			/* Send a regular CAN data frame */
 			int i;
 
 			for (i = 0; i < frame->len; i++) {
 				snprintf(&local_txbuf[2 * i], sizeof(local_txbuf),
-					"%02X",
-					frame->data[i]);
+					 "%02X",
+					 frame->data[i]);
 			}
 
 			snprintf(&local_txbuf[2 * i], sizeof(local_txbuf),
-				"\r");
+				 "\r");
 		}
 
 		elm->drop_next_line = 1;
@@ -999,10 +999,10 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 			elm327_uart_side_failure(elm);
 			spin_unlock_bh(&elm->lock);
 			return;
-		} else {
-			elm->txleft -= written;
-			elm->txhead += written;
 		}
+
+		elm->txleft -= written;
+		elm->txhead += written;
 	}
 
 	if (!elm->txleft)  {
