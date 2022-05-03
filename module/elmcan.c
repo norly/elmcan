@@ -141,7 +141,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
 {
 	int written;
 
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	if (elm->uart_side_failure)
 		return;
@@ -171,7 +171,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
  */
 static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 {
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	if (elm->state != ELM327_STATE_GETDUMMYCHAR &&
 	    elm->state != ELM327_STATE_GETPROMPT) {
@@ -184,7 +184,7 @@ static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 /* Schedule a CAN frame and necessary config changes to be sent to the TTY. */
 static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
 {
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	/* Schedule any necessary changes in ELM327's CAN configuration */
 	if (elm->can_frame_to_send.can_id != frame->can_id) {
@@ -246,7 +246,7 @@ static char *elm327_init_script[] = {
 
 static void elm327_init(struct elmcan *elm)
 {
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	elm->state = ELM327_STATE_NOTINIT;
 	elm->can_frame_to_send.can_id = 0x7df; /* ELM327 HW default */
@@ -276,7 +276,7 @@ static void elm327_init(struct elmcan *elm)
 static void elm327_feed_frame_to_netdev(struct elmcan *elm,
 					struct sk_buff *skb)
 {
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	if (!netif_running(elm->dev))
 		return;
@@ -299,7 +299,7 @@ static inline void elm327_uart_side_failure(struct elmcan *elm)
 	struct can_frame *frame;
 	struct sk_buff *skb;
 
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	elm->uart_side_failure = true;
 
@@ -340,7 +340,7 @@ static void elm327_parse_error(struct elmcan *elm, size_t len)
 	struct can_frame *frame;
 	struct sk_buff *skb;
 
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	skb = alloc_can_err_skb(elm->dev, &frame);
 	if (!skb)
@@ -407,7 +407,7 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 	int datastart;
 	int i;
 
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	skb = alloc_can_skb(elm->dev, &frame);
 	if (!skb)
@@ -529,7 +529,7 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 
 static void elm327_parse_line(struct elmcan *elm, size_t len)
 {
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	/* Skip empty lines */
 	if (!len)
@@ -563,7 +563,7 @@ static void elm327_handle_prompt(struct elmcan *elm)
 	 */
 	char local_txbuf[sizeof("0102030405060708\r")];
 
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	if (!elm->cmds_todo) {
 		/* Enter CAN monitor mode */
@@ -668,7 +668,7 @@ static bool elm327_is_ready_char(char c)
 
 static void elm327_drop_bytes(struct elmcan *elm, size_t i)
 {
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	memmove(&elm->rxbuf[0], &elm->rxbuf[i], ELM327_SIZE_RXBUF - i);
 	elm->rxfill -= i;
@@ -679,7 +679,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 	size_t len;
 	int i;
 
-	lockdep_assert_held(elm->lock);
+	lockdep_assert_held(&elm->lock);
 
 	switch (elm->state) {
 	case ELM327_STATE_NOTINIT:
