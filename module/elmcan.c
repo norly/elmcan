@@ -92,18 +92,18 @@ struct elmcan {
 	u8 rxbuf[ELM327_SIZE_RXBUF];
 	u8 txbuf[ELM327_SIZE_TXBUF] ____cacheline_aligned;
 
-	/* TTY buffer accounting */
-	struct work_struct tx_work;	/* Flushes TTY TX buffer */
-	u8 *txhead;			/* Next TX byte */
-	unsigned txleft;		/* Bytes left to TX */
-	int rxfill;			/* Bytes already RX'd in buffer */
+	/* Per-channel lock */
+	spinlock_t lock;
 
 	/* TTY and netdev devices that we're bridging */
 	struct tty_struct *tty;
 	struct net_device *dev;
 
-	/* Per-channel lock */
-	spinlock_t lock;
+	/* TTY buffer accounting */
+	struct work_struct tx_work;	/* Flushes TTY TX buffer */
+	u8 *txhead;			/* Next TX byte */
+	size_t txleft;			/* Bytes left to TX */
+	int rxfill;			/* Bytes already RX'd in buffer */
 
 	/* State machine */
 	enum {
