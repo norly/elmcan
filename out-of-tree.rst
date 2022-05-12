@@ -4,9 +4,9 @@ Using ELM327 driver out-of-tree
 Requirements
 -------------
 
-This requires Linux 4.11 (for 431af779256c), and has been tested on 4.19.
+This requires Linux 4.11 (for 431af779256c) at the very least.
 
-Also, elmcan depends on ``can-dev``:
+Also, can327 depends on ``can-dev``:
 
     sudo modprobe can-dev
 

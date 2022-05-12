@@ -1,12 +1,12 @@
 .. SPDX-License-Identifier: (GPL-2.0-only OR BSD-3-Clause)
 
-ELM327 driver for Linux SocketCAN
-==================================
+can327: ELM327 driver for Linux SocketCAN
+==========================================
 
 Out-of-tree version
 --------------------
 
-This is the non-upstreamed version of the elmcan driver.
+This is the non-upstreamed version of the can327 driver.
 Please see out-of-tree.rst for compilation/usage hints.
 
 
@@ -40,7 +40,7 @@ Since the ELM327 was never meant to be a stand alone CAN controller,
 the driver has to switch between its modes as quickly as possible in
 order to fake full-duplex operation.
 
-As such, elmcan is a best effort driver. However, this is more than
+As such, can327 is a best effort driver. However, this is more than
 enough to implement simple request-response protocols (such as OBD II),
 and to monitor broadcast messages on a bus (such as in a vehicle).
 
@@ -136,7 +136,7 @@ Known limitations of the controller
   sending a frame, the ELM327 will be in "receive reply" mode, in
   which it *does* ACK any received frames. Once the bus goes silent
   or an error occurs (such as BUFFER FULL), the ELM327 will end reply
-  reception mode on its own and elmcan will fall back to "``AT MA``"
+  reception mode on its own and can327 will fall back to "``AT MA``"
   in order to keep monitoring the bus.
 
 
@@ -175,7 +175,7 @@ Known limitations of the controller
 
 - Versions prior to 1.3
 
-  These chips cannot be used at all with elmcan. They do not support
+  These chips cannot be used at all with can327. They do not support
   the "``AT D1``" command, which is necessary to avoid parsing conflicts
   on incoming data, as well as distinction of RTR frame lengths.
 
@@ -238,7 +238,7 @@ entered::
 
 The init script in the driver switches off several configuration options
 that are only meaningful in the original OBD scenario the chip is meant
-for, and are actually a hindrance for elmcan.
+for, and are actually a hindrance for can327.
 
 
 When a command is not recognized, such as by an older version of the
@@ -248,7 +248,7 @@ ELM327, a question mark is printed as a response instead of OK::
     ?
     >
 
-At present, elmcan does not evaluate this response and silently assumes
+At present, can327 does not evaluate this response and silently assumes
 that all commands are recognized. It is structured such that it will
 degrade gracefully when a command is unknown. See the sections above on
 known limitations for details.
@@ -279,7 +279,7 @@ DLC, and data::
     123 8 DEADBEEF12345678
 
 For 29 bit CAN frames, the address format is slightly different, which
-elmcan uses to tell the two apart::
+can327 uses to tell the two apart::
 
     12 34 56 78 8 DEADBEEF12345678
 

@@ -4,13 +4,13 @@
  * This driver started as a derivative of linux/drivers/net/can/slcan.c
  * and my thanks go to the original authors for their inspiration.
  *
- * elmcan.c Author : Max Staudt <max-linux@enpas.org>
+ * can327.c Author : Max Staudt <max-linux@enpas.org>
  * slcan.c Author  : Oliver Hartkopp <socketcan@hartkopp.net>
  * slip.c Authors  : Laurence Culhane <loz@holmes.demon.co.uk>
  *                   Fred N. van Kempen <waltje@uwalt.nl.mugnet.org>
  */
 
-#define pr_fmt(fmt) "elmcan: " fmt
+#define pr_fmt(fmt) "can327: " fmt
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -82,7 +82,7 @@ enum elm327_to_to_do_bits {
 	ELM327_TX_DO_INIT
 };
 
-struct elmcan {
+struct can327 {
 	/* This must be the first member when using alloc_candev() */
 	struct can_priv can;
 
@@ -135,9 +135,9 @@ struct elmcan {
 	bool uart_side_failure;
 };
 
-static inline void elm327_uart_side_failure(struct elmcan *elm);
+static inline void elm327_uart_side_failure(struct can327 *elm);
 
-static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
+static void elm327_send(struct can327 *elm, const void *buf, size_t len)
 {
 	int written;
 
@@ -175,7 +175,7 @@ static void elm327_send(struct elmcan *elm, const void *buf, size_t len)
  * operation, or be echoed back to us in case we're already in command
  * mode.
  */
-static void elm327_kick_into_cmd_mode(struct elmcan *elm)
+static void elm327_kick_into_cmd_mode(struct can327 *elm)
 {
 	lockdep_assert_held(&elm->lock);
 
@@ -188,7 +188,7 @@ static void elm327_kick_into_cmd_mode(struct elmcan *elm)
 }
 
 /* Schedule a CAN frame and necessary config changes to be sent to the TTY. */
-static void elm327_send_frame(struct elmcan *elm, struct can_frame *frame)
+static void elm327_send_frame(struct can327 *elm, struct can_frame *frame)
 {
 	lockdep_assert_held(&elm->lock);
 
@@ -250,7 +250,7 @@ static char *elm327_init_script[] = {
 	NULL
 };
 
-static void elm327_init(struct elmcan *elm)
+static void elm327_init(struct can327 *elm)
 {
 	lockdep_assert_held(&elm->lock);
 
@@ -260,7 +260,7 @@ static void elm327_init(struct elmcan *elm)
 	elm->drop_next_line = 0;
 
 	/* We can only set the bitrate as a fraction of 500000.
-	 * The bit timing constants in elmcan_bittiming_const will
+	 * The bit timing constants in can327_bittiming_const will
 	 * limit the user to the right values.
 	 */
 	elm->can_bitrate_divisor = 500000 / elm->can.bittiming.bitrate;
@@ -279,7 +279,7 @@ static void elm327_init(struct elmcan *elm)
 	elm327_kick_into_cmd_mode(elm);
 }
 
-static void elm327_feed_frame_to_netdev(struct elmcan *elm,
+static void elm327_feed_frame_to_netdev(struct can327 *elm,
 					struct sk_buff *skb)
 {
 	lockdep_assert_held(&elm->lock);
@@ -300,7 +300,7 @@ static void elm327_feed_frame_to_netdev(struct elmcan *elm,
 }
 
 /* Called when we're out of ideas and just want it all to end. */
-static inline void elm327_uart_side_failure(struct elmcan *elm)
+static inline void elm327_uart_side_failure(struct can327 *elm)
 {
 	struct can_frame *frame;
 	struct sk_buff *skb;
@@ -343,7 +343,7 @@ static inline int check_len_then_cmp(const u8 *mem, size_t mem_len, const char *
 	return (mem_len == str_len) && !memcmp(mem, str, str_len);
 }
 
-static void elm327_parse_error(struct elmcan *elm, size_t len)
+static void elm327_parse_error(struct can327 *elm, size_t len)
 {
 	struct can_frame *frame;
 	struct sk_buff *skb;
@@ -407,7 +407,7 @@ static void elm327_parse_error(struct elmcan *elm, size_t len)
  *
  * We will use the spaces and line length to guess the format.
  */
-static int elm327_parse_frame(struct elmcan *elm, size_t len)
+static int elm327_parse_frame(struct can327 *elm, size_t len)
 {
 	struct can_frame *frame;
 	struct sk_buff *skb;
@@ -535,7 +535,7 @@ static int elm327_parse_frame(struct elmcan *elm, size_t len)
 	return 0;
 }
 
-static void elm327_parse_line(struct elmcan *elm, size_t len)
+static void elm327_parse_line(struct can327 *elm, size_t len)
 {
 	lockdep_assert_held(&elm->lock);
 
@@ -562,7 +562,7 @@ static void elm327_parse_line(struct elmcan *elm, size_t len)
 	}
 }
 
-static void elm327_handle_prompt(struct elmcan *elm)
+static void elm327_handle_prompt(struct can327 *elm)
 {
 	struct can_frame *frame = &elm->can_frame_to_send;
 	/* Size this buffer for the largest ELM327 line we may generate,
@@ -674,7 +674,7 @@ static bool elm327_is_ready_char(char c)
 	return (c & 0x3f) == ELM327_READY_CHAR;
 }
 
-static void elm327_drop_bytes(struct elmcan *elm, size_t i)
+static void elm327_drop_bytes(struct can327 *elm, size_t i)
 {
 	lockdep_assert_held(&elm->lock);
 
@@ -682,7 +682,7 @@ static void elm327_drop_bytes(struct elmcan *elm, size_t i)
 	elm->rxfill -= i;
 }
 
-static void elm327_parse_rxbuf(struct elmcan *elm)
+static void elm327_parse_rxbuf(struct can327 *elm)
 {
 	size_t len;
 	int i;
@@ -771,7 +771,7 @@ static void elm327_parse_rxbuf(struct elmcan *elm)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
 /* Dummy needed to use can_rx_offload */
-static struct sk_buff *elmcan_mailbox_read(struct can_rx_offload *offload,
+static struct sk_buff *can327_mailbox_read(struct can_rx_offload *offload,
 					   unsigned int n, u32 *timestamp,
 					   bool drop)
 {
@@ -781,9 +781,9 @@ static struct sk_buff *elmcan_mailbox_read(struct can_rx_offload *offload,
 }
 #endif
 
-static int elmcan_netdev_open(struct net_device *dev)
+static int can327_netdev_open(struct net_device *dev)
 {
-	struct elmcan *elm = netdev_priv(dev);
+	struct can327 *elm = netdev_priv(dev);
 	int err;
 
 	spin_lock_bh(&elm->lock);
@@ -811,7 +811,7 @@ static int elmcan_netdev_open(struct net_device *dev)
 	spin_unlock_bh(&elm->lock);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
-	elm->offload.mailbox_read = elmcan_mailbox_read;
+	elm->offload.mailbox_read = can327_mailbox_read;
 	err = can_rx_offload_add_fifo(dev, &elm->offload, ELM327_NAPI_WEIGHT);
 #else
 	err = can_rx_offload_add_manual(dev, &elm->offload, ELM327_NAPI_WEIGHT);
@@ -830,9 +830,9 @@ static int elmcan_netdev_open(struct net_device *dev)
 	return 0;
 }
 
-static int elmcan_netdev_close(struct net_device *dev)
+static int can327_netdev_close(struct net_device *dev)
 {
-	struct elmcan *elm = netdev_priv(dev);
+	struct can327 *elm = netdev_priv(dev);
 
 	/* Interrupt whatever the ELM327 is doing right now */
 	spin_lock_bh(&elm->lock);
@@ -855,10 +855,10 @@ static int elmcan_netdev_close(struct net_device *dev)
 }
 
 /* Send a can_frame to a TTY. */
-static netdev_tx_t elmcan_netdev_start_xmit(struct sk_buff *skb,
+static netdev_tx_t can327_netdev_start_xmit(struct sk_buff *skb,
 					    struct net_device *dev)
 {
-	struct elmcan *elm = netdev_priv(dev);
+	struct can327 *elm = netdev_priv(dev);
 	struct can_frame *frame = (struct can_frame *)skb->data;
 
 	if (can_dropped_invalid_skb(dev, skb))
@@ -896,14 +896,14 @@ out:
 	return NETDEV_TX_OK;
 }
 
-static const struct net_device_ops elmcan_netdev_ops = {
-	.ndo_open	= elmcan_netdev_open,
-	.ndo_stop	= elmcan_netdev_close,
-	.ndo_start_xmit	= elmcan_netdev_start_xmit,
+static const struct net_device_ops can327_netdev_ops = {
+	.ndo_open	= can327_netdev_open,
+	.ndo_stop	= can327_netdev_close,
+	.ndo_start_xmit	= can327_netdev_start_xmit,
 	.ndo_change_mtu	= can_change_mtu,
 };
 
-static bool elmcan_is_valid_rx_char(char c)
+static bool can327_is_valid_rx_char(char c)
 {
 	return (isdigit(c) ||
 		isupper(c) ||
@@ -924,14 +924,14 @@ static bool elmcan_is_valid_rx_char(char c)
  * functions may be called in parallel.
  */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
-static void elmcan_ldisc_rx(struct tty_struct *tty,
+static void can327_ldisc_rx(struct tty_struct *tty,
 			    const unsigned char *cp, char *fp, int count)
 #else
-static void elmcan_ldisc_rx(struct tty_struct *tty,
+static void can327_ldisc_rx(struct tty_struct *tty,
 			    const unsigned char *cp, const char *fp, int count)
 #endif
 {
-	struct elmcan *elm = (struct elmcan *)tty->disc_data;
+	struct can327 *elm = (struct can327 *)tty->disc_data;
 
 	spin_lock_bh(&elm->lock);
 
@@ -956,7 +956,7 @@ static void elmcan_ldisc_rx(struct tty_struct *tty,
 			/* Check for stray characters on the UART line.
 			 * Likely caused by bad hardware.
 			 */
-			if (!elmcan_is_valid_rx_char(*cp)) {
+			if (!can327_is_valid_rx_char(*cp)) {
 				netdev_err(elm->dev,
 					   "Received illegal character %02x.\n",
 					   *cp);
@@ -988,9 +988,9 @@ out:
 /* Write out remaining transmit buffer.
  * Scheduled when TTY is writable.
  */
-static void elmcan_ldisc_tx_worker(struct work_struct *work)
+static void can327_ldisc_tx_worker(struct work_struct *work)
 {
-	struct elmcan *elm = container_of(work, struct elmcan, tx_work);
+	struct can327 *elm = container_of(work, struct can327, tx_work);
 	ssize_t written;
 
 	if (elm->uart_side_failure)
@@ -1022,9 +1022,9 @@ static void elmcan_ldisc_tx_worker(struct work_struct *work)
 }
 
 /* Called by the driver when there's room for more data. */
-static void elmcan_ldisc_tx_wakeup(struct tty_struct *tty)
+static void can327_ldisc_tx_wakeup(struct tty_struct *tty)
 {
-	struct elmcan *elm = (struct elmcan *)tty->disc_data;
+	struct can327 *elm = (struct can327 *)tty->disc_data;
 
 	schedule_work(&elm->tx_work);
 }
@@ -1033,7 +1033,7 @@ static void elmcan_ldisc_tx_wakeup(struct tty_struct *tty)
  * or 7/8 of that. Divisors are 1 to 64.
  * Currently we don't implement support for 7/8 rates.
  */
-static const u32 elmcan_bitrate_const[64] = {
+static const u32 can327_bitrate_const[64] = {
 	 7812,  7936,  8064,  8196,  8333,  8474,  8620,  8771,
 	 8928,  9090,  9259,  9433,  9615,  9803, 10000, 10204,
 	10416, 10638, 10869, 11111, 11363, 11627, 11904, 12195,
@@ -1045,15 +1045,15 @@ static const u32 elmcan_bitrate_const[64] = {
 };
 
 /* Dummy needed to use bitrate_const */
-static int elmcan_do_set_bittiming(struct net_device *netdev)
+static int can327_do_set_bittiming(struct net_device *netdev)
 {
 	return 0;
 }
 
-static int elmcan_ldisc_open(struct tty_struct *tty)
+static int can327_ldisc_open(struct tty_struct *tty)
 {
 	struct net_device *dev;
-	struct elmcan *elm;
+	struct can327 *elm;
 	int err;
 
 	if (!capable(CAP_NET_ADMIN))
@@ -1062,7 +1062,7 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	if (!tty->ops->write)
 		return -EOPNOTSUPP;
 
-	dev = alloc_candev(sizeof(struct elmcan), 0);
+	dev = alloc_candev(sizeof(struct can327), 0);
 	if (!dev)
 		return -ENFILE;
 	elm = netdev_priv(dev);
@@ -1070,17 +1070,17 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	/* Configure TTY interface */
 	tty->receive_room = 65536; /* We don't flow control */
 	spin_lock_init(&elm->lock);
-	INIT_WORK(&elm->tx_work, elmcan_ldisc_tx_worker);
+	INIT_WORK(&elm->tx_work, can327_ldisc_tx_worker);
 
 	/* Configure CAN metadata */
-	elm->can.bitrate_const = elmcan_bitrate_const;
-	elm->can.bitrate_const_cnt = ARRAY_SIZE(elmcan_bitrate_const);
-	elm->can.do_set_bittiming = elmcan_do_set_bittiming;
+	elm->can.bitrate_const = can327_bitrate_const;
+	elm->can.bitrate_const_cnt = ARRAY_SIZE(can327_bitrate_const);
+	elm->can.do_set_bittiming = can327_do_set_bittiming;
 	elm->can.ctrlmode_supported = CAN_CTRLMODE_LISTENONLY;
 
 	/* Configure netdev interface */
 	elm->dev = dev;
-	dev->netdev_ops = &elmcan_netdev_ops;
+	dev->netdev_ops = &can327_netdev_ops;
 
 	/* Mark ldisc channel as alive */
 	elm->tty = tty;
@@ -1093,7 +1093,7 @@ static int elmcan_ldisc_open(struct tty_struct *tty)
 	if (err)
 		goto out_err;
 
-	netdev_info(elm->dev, "elmcan on %s.\n", tty->name);
+	netdev_info(elm->dev, "can327 on %s.\n", tty->name);
 
 	return 0;
 
@@ -1102,16 +1102,16 @@ out_err:
 	return err;
 }
 
-/* Close down an elmcan channel.
+/* Close down a can327 channel.
  * This means flushing out any pending queues, and then returning.
  * This call is serialized against other ldisc functions:
  * Once this is called, no other ldisc function of ours is entered.
  *
  * We also use this function for a hangup event.
  */
-static void elmcan_ldisc_close(struct tty_struct *tty)
+static void can327_ldisc_close(struct tty_struct *tty)
 {
-	struct elmcan *elm = (struct elmcan *)tty->disc_data;
+	struct can327 *elm = (struct can327 *)tty->disc_data;
 
 	/* unregister_netdev() calls .ndo_stop() so we don't have to.
 	 * Our .ndo_stop() also flushes the TTY write wakeup handler,
@@ -1125,18 +1125,18 @@ static void elmcan_ldisc_close(struct tty_struct *tty)
 	elm->tty = NULL;
 	spin_unlock_bh(&elm->lock);
 
-	netdev_info(elm->dev, "elmcan off %s.\n", tty->name);
+	netdev_info(elm->dev, "can327 off %s.\n", tty->name);
 
 	free_candev(elm->dev);
 }
 
-static int elmcan_ldisc_ioctl(struct tty_struct *tty,
+static int can327_ldisc_ioctl(struct tty_struct *tty,
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,17,0)
 			      struct file *file,
 #endif
 			      unsigned int cmd, unsigned long arg)
 {
-	struct elmcan *elm = (struct elmcan *)tty->disc_data;
+	struct can327 *elm = (struct can327 *)tty->disc_data;
 	unsigned int tmp;
 
 	switch (cmd) {
@@ -1158,25 +1158,25 @@ static int elmcan_ldisc_ioctl(struct tty_struct *tty,
 	}
 }
 
-static struct tty_ldisc_ops elmcan_ldisc = {
+static struct tty_ldisc_ops can327_ldisc = {
 	.owner		= THIS_MODULE,
-	.name		= "elmcan",
+	.name		= "can327",
 	.num		= N_DEVELOPMENT,
-	.receive_buf	= elmcan_ldisc_rx,
-	.write_wakeup	= elmcan_ldisc_tx_wakeup,
-	.open		= elmcan_ldisc_open,
-	.close		= elmcan_ldisc_close,
-	.ioctl		= elmcan_ldisc_ioctl,
+	.receive_buf	= can327_ldisc_rx,
+	.write_wakeup	= can327_ldisc_tx_wakeup,
+	.open		= can327_ldisc_open,
+	.close		= can327_ldisc_close,
+	.ioctl		= can327_ldisc_ioctl,
 };
 
-static int __init elmcan_init(void)
+static int __init can327_init(void)
 {
 	int status;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
-	status = tty_register_ldisc(N_DEVELOPMENT, &elmcan_ldisc);
+	status = tty_register_ldisc(N_DEVELOPMENT, &can327_ldisc);
 #else
-	status = tty_register_ldisc(&elmcan_ldisc);
+	status = tty_register_ldisc(&can327_ldisc);
 #endif
 	if (status)
 		pr_err("Can't register line discipline\n");
@@ -1184,7 +1184,7 @@ static int __init elmcan_init(void)
 	return status;
 }
 
-static void __exit elmcan_exit(void)
+static void __exit can327_exit(void)
 {
 	/* This will only be called when all channels have been closed by
 	 * userspace - tty_ldisc.c takes care of the module's refcount.
@@ -1197,12 +1197,12 @@ static void __exit elmcan_exit(void)
 		pr_err("Can't unregister line discipline (error: %d)\n",
 		       status);
 #else
-	tty_unregister_ldisc(&elmcan_ldisc);
+	tty_unregister_ldisc(&can327_ldisc);
 #endif
 }
 
-module_init(elmcan_init);
-module_exit(elmcan_exit);
+module_init(can327_init);
+module_exit(can327_exit);
 
 MODULE_ALIAS_LDISC(N_DEVELOPMENT);
 MODULE_DESCRIPTION("ELM327 based CAN interface");
