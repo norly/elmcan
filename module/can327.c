@@ -90,7 +90,7 @@ struct can327 {
 
 	/* TTY buffers */
 	u8 rxbuf[ELM327_SIZE_RXBUF];
-	u8 txbuf[ELM327_SIZE_TXBUF] ____cacheline_aligned;
+	u8 txbuf[ELM327_SIZE_TXBUF];
 
 	/* Per-channel lock */
 	spinlock_t lock;
