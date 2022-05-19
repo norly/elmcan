@@ -70,7 +70,7 @@
 #define ELM327_READY_CHAR '>'
 
 /* Bits in elm->cmds_todo */
-enum elm327_to_to_do_bits {
+enum elm327_tx_do {
 	ELM327_TX_DO_CAN_DATA = 0,
 	ELM327_TX_DO_CANID_11BIT,
 	ELM327_TX_DO_CANID_29BIT_LOW,
@@ -195,8 +195,8 @@ static void elm327_send_frame(struct can327 *elm, struct can_frame *frame)
 	/* Schedule any necessary changes in ELM327's CAN configuration */
 	if (elm->can_frame_to_send.can_id != frame->can_id) {
 		/* Set the new CAN ID for transmission. */
-		if ((frame->can_id & CAN_EFF_FLAG) ^
-		    (elm->can_frame_to_send.can_id & CAN_EFF_FLAG)) {
+		if ((frame->can_id ^ elm->can_frame_to_send.can_id)
+		    & CAN_EFF_FLAG) {
 			elm->can_config = (frame->can_id & CAN_EFF_FLAG
 						? 0
 						: ELM327_CAN_CONFIG_SEND_SFF)
@@ -326,21 +326,21 @@ static inline void elm327_uart_side_failure(struct can327 *elm)
 	elm327_feed_frame_to_netdev(elm, skb);
 }
 
-/* Compare buffer to string length, then compare buffer to fixed string.
- * This ensures two things:
- *  - It flags cases where the fixed string is only the start of the
- *    buffer, rather than exactly all of it.
- *  - It avoids byte comparisons in case the length doesn't match.
+/* Compares a byte buffer (non-NUL terminated) to the payload part of a string,
+ * and returns true iff the buffer (content *and* length) is exactly that
+ * string, without the terminating NUL byte.
  *
- * strncmp() cannot be used here because it accepts the following wrong case:
- *   strncmp("CAN ER", "CAN ERROR", 6);
- * This must fail, hence this helper function.
+ * Example: If reference is "BUS ERROR", then this returns true iff nbytes == 9
+ *          and !memcmp(buf, "BUS ERROR", 9).
+ *
+ * The reason to use strings is so we can easily include them in the C code,
+ * and to avoid hardcoding lengths.
  */
-static inline int check_len_then_cmp(const u8 *mem, size_t mem_len, const char *str)
+static inline int elm327_rxbuf_cmp(const u8 *buf, size_t nbytes, const char *reference)
 {
-	size_t str_len = strlen(str);
+	size_t ref_len = strlen(reference);
 
-	return (mem_len == str_len) && !memcmp(mem, str, str_len);
+	return (nbytes == ref_len) && !memcmp(buf, reference, ref_len);
 }
 
 static void elm327_parse_error(struct can327 *elm, size_t len)
@@ -358,26 +358,26 @@ static void elm327_parse_error(struct can327 *elm, size_t len)
 		return;
 
 	/* Filter possible error messages based on length of RX'd line */
-	if (check_len_then_cmp(elm->rxbuf, len, "UNABLE TO CONNECT")) {
+	if (elm327_rxbuf_cmp(elm->rxbuf, len, "UNABLE TO CONNECT")) {
 		netdev_err(elm->dev,
 			   "ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
-	} else if (check_len_then_cmp(elm->rxbuf, len, "BUFFER FULL")) {
+	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "BUFFER FULL")) {
 		/* This will only happen if the last data line was complete.
 		 * Otherwise, elm327_parse_frame() will heuristically
 		 * emit this kind of error frame instead.
 		 */
 		frame->can_id |= CAN_ERR_CRTL;
 		frame->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
-	} else if (check_len_then_cmp(elm->rxbuf, len, "BUS ERROR")) {
+	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "BUS ERROR")) {
 		frame->can_id |= CAN_ERR_BUSERROR;
-	} else if (check_len_then_cmp(elm->rxbuf, len, "CAN ERROR")) {
+	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "CAN ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
-	} else if (check_len_then_cmp(elm->rxbuf, len, "<RX ERROR")) {
+	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "<RX ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
-	} else if (check_len_then_cmp(elm->rxbuf, len, "BUS BUSY")) {
+	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "BUS BUSY")) {
 		frame->can_id |= CAN_ERR_PROT;
 		frame->data[2] = CAN_ERR_PROT_OVERLOAD;
-	} else if (check_len_then_cmp(elm->rxbuf, len, "FB ERROR")) {
+	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "FB ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
 		frame->data[2] = CAN_ERR_PROT_TX;
 	} else if (len == 5 && !memcmp(elm->rxbuf, "ERR", 3)) {
@@ -601,7 +601,7 @@ static void elm327_handle_prompt(struct can327 *elm)
 	} else if (test_and_clear_bit(ELM327_TX_DO_SILENT_MONITOR, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "ATCSM%i\r",
-			 !(!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)));
+			 !!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
 
 	} else if (test_and_clear_bit(ELM327_TX_DO_RESPONSES, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
@@ -695,7 +695,6 @@ static void elm327_parse_rxbuf(struct can327 *elm)
 		break;
 
 	case ELM327_STATE_GETDUMMYCHAR:
-	{
 		/* Wait for 'y' or '>' */
 		for (i = 0; i < elm->rxfill; i++) {
 			if (elm->rxbuf[i] == ELM327_DUMMY_CHAR) {
@@ -711,9 +710,7 @@ static void elm327_parse_rxbuf(struct can327 *elm)
 		}
 
 		elm327_drop_bytes(elm, i);
-
 		break;
-	}
 
 	case ELM327_STATE_GETPROMPT:
 		/* Wait for '>' */
@@ -725,20 +722,17 @@ static void elm327_parse_rxbuf(struct can327 *elm)
 
 	case ELM327_STATE_RECEIVING:
 		/* Find <CR> delimiting feedback lines. */
-		for (len = 0;
-		     (len < elm->rxfill) && (elm->rxbuf[len] != '\r');
-		     len++) {
-			/* empty loop */
-		}
+		len = 0;
+		while (len < elm->rxfill && elm->rxbuf[len] != '\r')
+			len++;
 
 		if (len == ELM327_SIZE_RXBUF) {
-			/* Line exceeds buffer. It's probably all garbage.
+			/* Assume the buffer ran full with garbage.
 			 * Did we even connect at the right baud rate?
 			 */
 			netdev_err(elm->dev,
 				   "RX buffer overflow. Faulty ELM327 or UART?\n");
 			elm327_uart_side_failure(elm);
-			break;
 		} else if (len == elm->rxfill) {
 			if (elm327_is_ready_char(elm->rxbuf[elm->rxfill - 1])) {
 				/* The ELM327's AT ST response timeout ran out,
@@ -748,24 +742,22 @@ static void elm327_parse_rxbuf(struct can327 *elm)
 				elm->rxfill = 0;
 
 				elm327_handle_prompt(elm);
-				break;
 			}
 
 			/* No <CR> found - we haven't received a full line yet.
 			 * Wait for more data.
 			 */
-			break;
+		} else {
+			/* We have a full line to parse. */
+			elm327_parse_line(elm, len);
+
+			/* Remove parsed data from RX buffer. */
+			elm327_drop_bytes(elm, len + 1);
+
+			/* More data to parse? */
+			if (elm->rxfill)
+				elm327_parse_rxbuf(elm);
 		}
-
-		/* We have a full line to parse. */
-		elm327_parse_line(elm, len);
-
-		/* Remove parsed data from RX buffer. */
-		elm327_drop_bytes(elm, len + 1);
-
-		/* More data to parse? */
-		if (elm->rxfill)
-			elm327_parse_rxbuf(elm);
 	}
 }
 
@@ -952,7 +944,7 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 		 * See ELM327 documentation, which refers to a Microchip PIC
 		 * bug description.
 		 */
-		if (*cp != 0) {
+		if (*cp) {
 			/* Check for stray characters on the UART line.
 			 * Likely caused by bad hardware.
 			 */
