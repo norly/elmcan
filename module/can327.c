@@ -896,20 +896,30 @@ static const struct net_device_ops can327_netdev_ops = {
 	.ndo_change_mtu	= can_change_mtu,
 };
 
-static bool can327_is_valid_rx_char(char c)
+static bool can327_is_valid_rx_char(u8 c)
 {
-	return (isdigit(c) ||
-		isupper(c) ||
-		c == ELM327_DUMMY_CHAR ||
-		c == ELM327_READY_CHAR ||
-		c == '<' ||
-		c == 'a' ||
-		c == 'b' ||
-		c == 'v' ||
-		c == '.' ||
-		c == '?' ||
-		c == '\r' ||
-		c == ' ');
+	static const bool lut_char_is_valid['z'] = {
+		['\r'] = true,
+		[' '] = true,
+		['.'] = true,
+		['0'] = true, true, true, true, true,
+		['5'] = true, true, true, true, true,
+		['<'] = true,
+		[ELM327_READY_CHAR] = true,
+		['?'] = true,
+		['A'] = true, true, true, true, true, true, true,
+		['H'] = true, true, true, true, true, true, true,
+		['O'] = true, true, true, true, true, true, true,
+		['V'] = true, true, true, true, true,
+		['a'] = true,
+		['b'] = true,
+		['v'] = true,
+		[ELM327_DUMMY_CHAR] = true,
+	};
+	BUILD_BUG_ON(ELM327_DUMMY_CHAR >= 'z');
+
+	return (c < ARRAY_SIZE(lut_char_is_valid) &&
+		lut_char_is_valid[c]);
 }
 
 /* Handle incoming ELM327 ASCII data.
