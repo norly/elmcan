@@ -856,25 +856,26 @@ static netdev_tx_t can327_netdev_start_xmit(struct sk_buff *skb,
 	if (can_dropped_invalid_skb(dev, skb))
 		return NETDEV_TX_OK;
 
-	/* BHs are already disabled, so no spin_lock_bh().
-	 * See Documentation/networking/netdevices.txt
+	/* This check will be part of can_dropped_invalid_skb()
+	 * in future kernels.
 	 */
-	spin_lock(&elm->lock);
+	if (elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)
+		goto out;
 
 	/* We shouldn't get here after a hardware fault:
 	 * can_bus_off() calls netif_carrier_off()
 	 */
-	WARN_ON_ONCE(elm->uart_side_failure);
-
-	if (!elm->tty ||
-	    elm->uart_side_failure ||
-	    elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY) {
-		spin_unlock(&elm->lock);
+	if (elm->uart_side_failure) {
+		WARN_ON_ONCE(elm->uart_side_failure);
 		goto out;
 	}
 
 	netif_stop_queue(dev);
 
+	/* BHs are already disabled, so no spin_lock_bh().
+	 * See Documentation/networking/netdevices.txt
+	 */
+	spin_lock(&elm->lock);
 	elm327_send_frame(elm, frame);
 	spin_unlock(&elm->lock);
 
@@ -925,10 +926,10 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 {
 	struct can327 *elm = (struct can327 *)tty->disc_data;
 
-	spin_lock_bh(&elm->lock);
-
 	if (elm->uart_side_failure)
-		goto out;
+		return;
+
+	spin_lock_bh(&elm->lock);
 
 	while (count-- && elm->rxfill < ELM327_SIZE_RXBUF) {
 		if (fp && *fp++) {
@@ -936,7 +937,8 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 
 			elm327_uart_side_failure(elm);
 
-			goto out;
+			spin_unlock_bh(&elm->lock);
+			return;
 		}
 
 		/* Ignore NUL characters, which the PIC microcontroller may
@@ -954,7 +956,8 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 					   *cp);
 				elm327_uart_side_failure(elm);
 
-				goto out;
+				spin_unlock_bh(&elm->lock);
+				return;
 			}
 
 			elm->rxbuf[elm->rxfill++] = *cp;
@@ -968,12 +971,11 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 
 		elm327_uart_side_failure(elm);
 
-		goto out;
+		spin_unlock_bh(&elm->lock);
+		return;
 	}
 
 	elm327_parse_rxbuf(elm);
-
-out:
 	spin_unlock_bh(&elm->lock);
 }
 
@@ -997,6 +999,7 @@ static void can327_ldisc_tx_worker(struct work_struct *work)
 				   "Failed to write to tty %s.\n",
 				   elm->tty->name);
 			elm327_uart_side_failure(elm);
+
 			spin_unlock_bh(&elm->lock);
 			return;
 		}
@@ -1005,12 +1008,10 @@ static void can327_ldisc_tx_worker(struct work_struct *work)
 		elm->txhead += written;
 	}
 
-	if (!elm->txleft)  {
+	if (!elm->txleft)
 		clear_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
-		spin_unlock_bh(&elm->lock);
-	} else {
-		spin_unlock_bh(&elm->lock);
-	}
+
+	spin_unlock_bh(&elm->lock);
 }
 
 /* Called by the driver when there's room for more data. */
@@ -1082,16 +1083,14 @@ static int can327_ldisc_open(struct tty_struct *tty)
 
 	/* Let 'er rip */
 	err = register_candev(elm->dev);
-	if (err)
-		goto out_err;
+	if (err) {
+		free_candev(elm->dev);
+		return err;
+	}
 
 	netdev_info(elm->dev, "can327 on %s.\n", tty->name);
 
 	return 0;
-
-out_err:
-	free_candev(elm->dev);
-	return err;
 }
 
 /* Close down a can327 channel.
