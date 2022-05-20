@@ -336,7 +336,7 @@ static inline void elm327_uart_side_failure(struct can327 *elm)
  * The reason to use strings is so we can easily include them in the C code,
  * and to avoid hardcoding lengths.
  */
-static inline int elm327_rxbuf_cmp(const u8 *buf, size_t nbytes, const char *reference)
+static inline bool elm327_rxbuf_cmp(const u8 *buf, size_t nbytes, const char *reference)
 {
 	size_t ref_len = strlen(reference);
 
