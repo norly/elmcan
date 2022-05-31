@@ -682,10 +682,9 @@ static void elm327_drop_bytes(struct can327 *elm, size_t i)
 	elm->rxfill -= i;
 }
 
-static void elm327_parse_rxbuf(struct can327 *elm)
+static void elm327_parse_rxbuf(struct can327 *elm, size_t first_new_char_idx)
 {
-	size_t len;
-	int i;
+	size_t len, pos;
 
 	lockdep_assert_held(&elm->lock);
 
@@ -696,20 +695,20 @@ static void elm327_parse_rxbuf(struct can327 *elm)
 
 	case ELM327_STATE_GETDUMMYCHAR:
 		/* Wait for 'y' or '>' */
-		for (i = 0; i < elm->rxfill; i++) {
-			if (elm->rxbuf[i] == ELM327_DUMMY_CHAR) {
+		for (pos = 0; pos < elm->rxfill; pos++) {
+			if (elm->rxbuf[pos] == ELM327_DUMMY_CHAR) {
 				elm327_send(elm, "\r", 1);
 				elm->state = ELM327_STATE_GETPROMPT;
-				i++;
+				pos++;
 				break;
-			} else if (elm327_is_ready_char(elm->rxbuf[i])) {
+			} else if (elm327_is_ready_char(elm->rxbuf[pos])) {
 				elm327_send(elm, ELM327_DUMMY_STRING, 1);
-				i++;
+				pos++;
 				break;
 			}
 		}
 
-		elm327_drop_bytes(elm, i);
+		elm327_drop_bytes(elm, pos);
 		break;
 
 	case ELM327_STATE_GETPROMPT:
@@ -722,7 +721,7 @@ static void elm327_parse_rxbuf(struct can327 *elm)
 
 	case ELM327_STATE_RECEIVING:
 		/* Find <CR> delimiting feedback lines. */
-		len = 0;
+		len = first_new_char_idx;
 		while (len < elm->rxfill && elm->rxbuf[len] != '\r')
 			len++;
 
@@ -756,7 +755,7 @@ static void elm327_parse_rxbuf(struct can327 *elm)
 
 			/* More data to parse? */
 			if (elm->rxfill)
-				elm327_parse_rxbuf(elm);
+				elm327_parse_rxbuf(elm, 0);
 		}
 	}
 }
@@ -935,11 +934,17 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 #endif
 {
 	struct can327 *elm = (struct can327 *)tty->disc_data;
+	size_t first_new_char_idx;
 
 	if (elm->uart_side_failure)
 		return;
 
 	spin_lock_bh(&elm->lock);
+
+	/* Store old rxfill, so elm327_parse_rxbuf() will have
+	 * the option of skipping already checked characters.
+	 */
+	first_new_char_idx = elm->rxfill;
 
 	while (count-- && elm->rxfill < ELM327_SIZE_RXBUF) {
 		if (fp && *fp++) {
@@ -985,7 +990,7 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 		return;
 	}
 
-	elm327_parse_rxbuf(elm);
+	elm327_parse_rxbuf(elm, first_new_char_idx);
 	spin_unlock_bh(&elm->lock);
 }
 
