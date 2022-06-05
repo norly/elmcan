@@ -44,8 +44,13 @@ If in doubt, feel free to ask me to clarify which code is mine.
 Thanks
 =======
 
-Thanks go out to Oliver Neukum for his early reviews and suggestions.
+Several people have encouraged me to finish this - thank you all.
 
-Several more people have encouraged me to finish this - thank you all.
+Thanks to Oliver Neukum for his early (pre-v1) reviews and suggestions.
+
+Thanks to Greg Kroah-Hartman, Marc Kleine-Budde for their upstream reviews.
+
+Thanks to Vincent Mailhol for the extra upstream review help and push,
+unexpected and very appreciated.
 
 Thanks to tomaszduda23 for the dkms.conf file.
