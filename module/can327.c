@@ -993,7 +993,7 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 	}
 
 	if (count >= 0) {
-		netdev_err(elm->dev, "Receive buffer overflowed. Bad chip or wiring?");
+		netdev_err(elm->dev, "Receive buffer overflowed. Bad chip or wiring? count = %i", count);
 
 		elm327_uart_side_failure(elm);
 
