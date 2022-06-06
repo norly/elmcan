@@ -762,6 +762,16 @@ static void elm327_parse_rxbuf(struct can327 *elm, size_t first_new_char_idx)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
 /* Dummy needed to use can_rx_offload */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
+static unsigned int *can327_mailbox_read(struct can_rx_offload *offload,
+					 struct can_frame *cf,
+					 u32 *timestamp, unsigned int n)
+{
+	WARN_ON_ONCE(1); /* This function is a dummy, so don't call it! */
+
+	return -ENOBUFS;
+}
+#else /* Since 4e9c9484b085 (included in v5.5) */
 static struct sk_buff *can327_mailbox_read(struct can_rx_offload *offload,
 					   unsigned int n, u32 *timestamp,
 					   bool drop)
@@ -770,6 +780,7 @@ static struct sk_buff *can327_mailbox_read(struct can_rx_offload *offload,
 
 	return ERR_PTR(-ENOBUFS);
 }
+#endif
 #endif
 
 static int can327_netdev_open(struct net_device *dev)
