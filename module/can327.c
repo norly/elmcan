@@ -14,14 +14,10 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/moduleparam.h>
 
-#include <linux/atomic.h>
 #include <linux/bitops.h>
 #include <linux/ctype.h>
-#include <linux/delay.h>
 #include <linux/errno.h>
-#include <linux/if_ether.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/lockdep.h>
