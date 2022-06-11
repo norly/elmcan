@@ -52,8 +52,8 @@
 
 #define ELM327_NAPI_WEIGHT 4
 
-#define ELM327_SIZE_RXBUF 992
 #define ELM327_SIZE_TXBUF 32
+#define ELM327_SIZE_RXBUF 1024
 
 #define ELM327_CAN_CONFIG_SEND_SFF           0x8000
 #define ELM327_CAN_CONFIG_VARIABLE_DLC       0x4000
@@ -84,8 +84,8 @@ struct can327 {
 	struct can_rx_offload offload;
 
 	/* TTY buffers */
-	u8 rxbuf[ELM327_SIZE_RXBUF];
 	u8 txbuf[ELM327_SIZE_TXBUF];
+	u8 rxbuf[ELM327_SIZE_RXBUF];
 
 	/* Per-channel lock */
 	spinlock_t lock;
