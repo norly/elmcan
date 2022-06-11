@@ -1052,7 +1052,7 @@ static void can327_ldisc_tx_wakeup(struct tty_struct *tty)
  * or 7/8 of that. Divisors are 1 to 64.
  * Currently we don't implement support for 7/8 rates.
  */
-static const u32 can327_bitrate_const[64] = {
+static const u32 can327_bitrate_const[] = {
 	 7812,  7936,  8064,  8196,  8333,  8474,  8620,  8771,
 	 8928,  9090,  9259,  9433,  9615,  9803, 10000, 10204,
 	10416, 10638, 10869, 11111, 11363, 11627, 11904, 12195,
