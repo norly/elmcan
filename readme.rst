@@ -63,11 +63,48 @@ The official data sheets can be found at ELM electronics' home page:
 
 
 
+How to attach the line discipline
+----------------------------------
+
+Every ELM327 chip is factory programmed to operate at a serial setting
+of 38400 baud/s, 8 data bits, no parity, 1 stopbit.
+
+If you have kept this default configuration, the line discipline can
+be attached on a command prompt as follows::
+
+    sudo ldattach \
+           --debug \
+           --speed 38400 \
+           --eightbits \
+           --noparity \
+           --onestopbit \
+           --iflag -ICRNL,INLCR,-IXOFF \
+           29 \
+           /dev/ttyUSB0
+
+To change the ELM327's serial settings, please refer to its data
+sheet. This needs to be done before attaching the line discipline.
+
+Once the ldisc is attached, the CAN interface starts out unconfigured.
+Set the speed before starting it::
+
+    # The interface needs to be down to change parameters
+    sudo ip link set can0 down
+    sudo ip link set can0 type can bitrate 500000
+    sudo ip link set can0 up
+
+500000 bit/s is a common rate for OBD-II diagnostics.
+If you're connecting straight to a car's OBD port, this is the speed
+that most cars (but not all!) expect.
+
+After this, you can set out as usual with candump, cansniffer, etc.
+
+
+
 How to check the controller version
 ------------------------------------
 
 Use a terminal program to attach to the controller.
-The default settings are 38400 baud/s, 8 data bits, no parity, 1 stopbit.
 
 After issuing the "``AT WS``" command, the controller will respond with
 its version::
@@ -84,40 +121,86 @@ It is not indicative of their actual feature set.
 
 
 
-How to attach the line discipline
-----------------------------------
 
-Every ELM327 chip is factory programmed to operate at a serial setting
-of 38400 baud/s, 8 data bits, no parity, 1 stopbit.
+Communication example
+----------------------
 
-The line discipline can be attached on a command prompt as follows::
+This is a short and incomplete introduction on how to talk to an ELM327.
+It is here to guide understanding of the controller's and the driver's
+limitation (listed below) as well as manual testing.
 
-    sudo ldattach \
-           --debug \
-           --speed 38400 \
-           --eightbits \
-           --noparity \
-           --onestopbit \
-           --iflag -ICRNL,INLCR,-IXOFF \
-           29 \
-           /dev/ttyUSB0
 
-To change the ELM327's serial settings, please refer to its data
-sheet. This needs to be done before attaching the line discipline.
+The ELM327 has two modes:
 
-Once the ldisc is attached, the CAN interface starts out unconfigured.
-Set the speed before starting it:
+- Command mode
+- Reception mode
 
-    # The interface needs to be down to change parameters
-    sudo ip link set can0 down
-    sudo ip link set can0 type can bitrate 500000
-    sudo ip link set can0 up
+In command mode, it expects one command per line, terminated by CR.
+By default, the prompt is a "``>``", after which a command can be
+entered::
 
-500000 bit/s is a common rate for OBD-II diagnostics.
-If you're connecting straight to a car's OBD port, this is the speed
-that most cars (but not all!) expect.
+    >ATE1
+    OK
+    >
 
-After this, you can set out as usual with candump, cansniffer, etc.
+The init script in the driver switches off several configuration options
+that are only meaningful in the original OBD scenario the chip is meant
+for, and are actually a hindrance for can327.
+
+
+When a command is not recognized, such as by an older version of the
+ELM327, a question mark is printed as a response instead of OK::
+
+    >ATUNKNOWN
+    ?
+    >
+
+At present, can327 does not evaluate this response and silently assumes
+that all commands are recognized. It is structured such that it will
+degrade gracefully when a command is unknown. See the sections above on
+known limitations for details.
+
+
+When a CAN frame is to be sent, the target address is configured, after
+which the frame is sent as a command that consists of the data's hex
+dump::
+
+    >ATSH123
+    OK
+    >DEADBEEF12345678
+    OK
+    >
+
+The above interaction sends the SFF frame "``DE AD BE EF 12 34 56 78``"
+with (11 bit) CAN ID ``0x123``.
+For this to function, the controller must be configured for SFF sending
+mode (using "``AT PB``", see code or datasheet).
+
+
+Once a frame has been sent and wait-for-reply mode is on (``ATR1``,
+configured on ``listen-only=off``), or when the reply timeout expires
+and the driver sets the controller into monitoring mode (``ATMA``),
+the ELM327 will send one line for each received CAN frame, consisting
+of CAN ID, DLC, and data::
+
+    123 8 DEADBEEF12345678
+
+For EFF (29 bit) CAN frames, the address format is slightly different,
+which can327 uses to tell the two apart::
+
+    12 34 56 78 8 DEADBEEF12345678
+
+The ELM327 will receive both SFF and EFF frames - the current CAN
+config (``ATPB``) does not matter.
+
+
+If the ELM327's internal UART sending buffer runs full, it will abort
+the monitoring mode, print "BUFFER FULL" and drop back into command
+mode. Note that in this case, unlike with other error messages, the
+error message may appear on the same line as the last (usually
+incomplete) data frame::
+
+    12 34 56 78 8 DEADBEEF123 BUFFER FULL
 
 
 
@@ -131,13 +214,18 @@ Known limitations of the controller
   Receiving RTR with DLC 8 will appear to be a regular frame with
   the last received frame's DLC and payload.
 
-  "``AT CSM``" not supported, thus no ACK-ing frames while listening:
-  "``AT MA``" will always be silent. However, immediately after
-  sending a frame, the ELM327 will be in "receive reply" mode, in
-  which it *does* ACK any received frames. Once the bus goes silent
-  or an error occurs (such as BUFFER FULL), the ELM327 will end reply
+  "``AT CSM``" (CAN Silent Monitoring, i.e. don't send CAN ACKs) is
+  not supported, and is hard coded to ON. Thus, frames are not ACKed
+  while listening: "``AT MA``" (Monitor All) will always be "silent".
+  However, immediately after sending a frame, the ELM327 will be in
+  "receive reply" mode, in which it *does* ACK any received frames.
+  Once the bus goes silent, or an error occurs (such as BUFFER FULL),
+  or the receive reply timeout runs out, the ELM327 will end reply
   reception mode on its own and can327 will fall back to "``AT MA``"
   in order to keep monitoring the bus.
+
+  Other limitations may apply, depending on the clone and the quality
+  of its firmware.
 
 
 - All versions
@@ -214,86 +302,6 @@ Known limitations of the driver
   filters available through "``AT CF xxx``" and "``AT CM xxx``" would be
   helpful here, however SocketCAN does not currently provide a facility
   to make use of such hardware features.
-
-
-
-Communication example
-----------------------
-
-This is a short and incomplete introduction on how to talk to an ELM327.
-
-
-The ELM327 has two modes:
-
-- Command mode
-- Reception mode
-
-In command mode, it expects one command per line, terminated by CR.
-By default, the prompt is a "``>``", after which a command can be
-entered::
-
-    >ATE1
-    OK
-    >
-
-The init script in the driver switches off several configuration options
-that are only meaningful in the original OBD scenario the chip is meant
-for, and are actually a hindrance for can327.
-
-
-When a command is not recognized, such as by an older version of the
-ELM327, a question mark is printed as a response instead of OK::
-
-    >ATUNKNOWN
-    ?
-    >
-
-At present, can327 does not evaluate this response and silently assumes
-that all commands are recognized. It is structured such that it will
-degrade gracefully when a command is unknown. See the sections above on
-known limitations for details.
-
-
-When a CAN frame is to be sent, the target address is configured, after
-which the frame is sent as a command that consists of the data's hex
-dump::
-
-    >ATSH123
-    OK
-    >DEADBEEF12345678
-    OK
-    >
-
-The above interaction sends the frame "``DE AD BE EF 12 34 56 78``" with
-the 11 bit CAN ID ``0x123``.
-For this to function, the controller must be configured for 11 bit CAN
-ID sending mode (using "``AT PB``", see code or datasheet).
-
-
-Once a frame has been sent and wait-for-reply mode is on (``ATR1``,
-configured on ``listen-only=off``), or when the reply timeout expires and
-the driver sets the controller into monitoring mode (``ATMA``), the ELM327
-will send one line for each received CAN frame, consisting of CAN ID,
-DLC, and data::
-
-    123 8 DEADBEEF12345678
-
-For 29 bit CAN frames, the address format is slightly different, which
-can327 uses to tell the two apart::
-
-    12 34 56 78 8 DEADBEEF12345678
-
-The ELM327 will receive both 11 and 29 bit frames - the current CAN
-config (``ATPB``) does not matter.
-
-
-If the ELM327's internal UART sending buffer runs full, it will abort
-the monitoring mode, print "BUFFER FULL" and drop back into command
-mode. Note that in this case, unlike with other error messages, the
-error message may appear on the same line as the last (usually
-incomplete) data frame::
-
-    12 34 56 78 8 DEADBEEF123 BUFFER FULL
 
 
 
