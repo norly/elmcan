@@ -35,7 +35,6 @@
 #include <linux/can.h>
 #include <linux/can/dev.h>
 #include <linux/can/error.h>
-#include <linux/can/led.h>
 #include <linux/can/rx-offload.h>
 
 /* Line discipline ID number.
@@ -825,7 +824,6 @@ static int can327_netdev_open(struct net_device *dev)
 
 	can_rx_offload_enable(&elm->offload);
 
-	can_led_event(dev, CAN_LED_EVENT_OPEN);
 	elm->can.state = CAN_STATE_ERROR_ACTIVE;
 	netif_start_queue(dev);
 
@@ -851,7 +849,6 @@ static int can327_netdev_close(struct net_device *dev)
 	elm->can.state = CAN_STATE_STOPPED;
 	can_rx_offload_del(&elm->offload);
 	close_candev(dev);
-	can_led_event(dev, CAN_LED_EVENT_STOP);
 
 	return 0;
 }
@@ -891,8 +888,6 @@ static netdev_tx_t can327_netdev_start_xmit(struct sk_buff *skb,
 
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += frame->len;
-
-	can_led_event(dev, CAN_LED_EVENT_TX);
 
 out:
 	kfree_skb(skb);
@@ -1104,8 +1099,6 @@ static int can327_ldisc_open(struct tty_struct *tty)
 	/* Mark ldisc channel as alive */
 	elm->tty = tty;
 	tty->disc_data = elm;
-
-	devm_can_led_init(elm->dev);
 
 	/* Let 'er rip */
 	err = register_candev(elm->dev);
