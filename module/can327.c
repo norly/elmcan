@@ -440,6 +440,7 @@ static int elm327_parse_frame(struct can327 *elm, size_t len)
 		/* The line is likely garbled anyway, so bail.
 		 * The main code will restart listening.
 		 */
+		kfree_skb(skb);
 		return -ENODATA;
 	}
 
@@ -458,6 +459,7 @@ static int elm327_parse_frame(struct can327 *elm, size_t len)
 		/* This is not a well-formatted data line.
 		 * Assume it's an error message.
 		 */
+		kfree_skb(skb);
 		return -ENODATA;
 	}
 
@@ -465,6 +467,7 @@ static int elm327_parse_frame(struct can327 *elm, size_t len)
 		/* The line is too short to be a valid frame hex dump.
 		 * Something interrupted the hex dump or it is invalid.
 		 */
+		kfree_skb(skb);
 		return -ENODATA;
 	}
 
@@ -516,6 +519,7 @@ static int elm327_parse_frame(struct can327 *elm, size_t len)
 		 * However, this will correctly drop the state machine back into
 		 * command mode.
 		 */
+		kfree_skb(skb);
 		return -ENODATA;
 	}
 
