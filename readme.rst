@@ -155,10 +155,8 @@ ELM327, a question mark is printed as a response instead of OK::
     ?
     >
 
-At present, can327 does not evaluate this response and silently assumes
-that all commands are recognized. It is structured such that it will
-degrade gracefully when a command is unknown. See the sections above on
-known limitations for details.
+At present, can327 does not evaluate this response. See the section
+below on known limitations for details.
 
 
 When a CAN frame is to be sent, the target address is configured, after
