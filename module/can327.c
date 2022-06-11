@@ -256,7 +256,7 @@ static void elm327_init(struct can327 *elm)
 	elm->drop_next_line = 0;
 
 	/* We can only set the bitrate as a fraction of 500000.
-	 * The bit timing constants in can327_bittiming_const will
+	 * The bitrates listed in can327_bitrate_const will
 	 * limit the user to the right values.
 	 */
 	elm->can_bitrate_divisor = 500000 / elm->can.bittiming.bitrate;
