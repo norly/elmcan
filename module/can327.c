@@ -887,7 +887,7 @@ static netdev_tx_t can327_netdev_start_xmit(struct sk_buff *skb,
 	spin_unlock(&elm->lock);
 
 	dev->stats.tx_packets++;
-	dev->stats.tx_bytes += frame->len;
+	dev->stats.tx_bytes += frame->can_id & CAN_RTR_FLAG ? 0 : frame->len;
 
 out:
 	kfree_skb(skb);
