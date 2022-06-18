@@ -50,31 +50,31 @@
 #define len can_dlc
 #endif
 
-#define ELM327_NAPI_WEIGHT 4
+#define CAN327_NAPI_WEIGHT 4
 
-#define ELM327_SIZE_TXBUF 32
-#define ELM327_SIZE_RXBUF 1024
+#define CAN327_SIZE_TXBUF 32
+#define CAN327_SIZE_RXBUF 1024
 
-#define ELM327_CAN_CONFIG_SEND_SFF           0x8000
-#define ELM327_CAN_CONFIG_VARIABLE_DLC       0x4000
-#define ELM327_CAN_CONFIG_RECV_BOTH_SFF_EFF  0x2000
-#define ELM327_CAN_CONFIG_BAUDRATE_MULT_8_7  0x1000
+#define CAN327_CAN_CONFIG_SEND_SFF           0x8000
+#define CAN327_CAN_CONFIG_VARIABLE_DLC       0x4000
+#define CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF  0x2000
+#define CAN327_CAN_CONFIG_BAUDRATE_MULT_8_7  0x1000
 
-#define ELM327_DUMMY_CHAR 'y'
-#define ELM327_DUMMY_STRING "y"
-#define ELM327_READY_CHAR '>'
+#define CAN327_DUMMY_CHAR 'y'
+#define CAN327_DUMMY_STRING "y"
+#define CAN327_READY_CHAR '>'
 
 /* Bits in elm->cmds_todo */
-enum elm327_tx_do {
-	ELM327_TX_DO_CAN_DATA = 0,
-	ELM327_TX_DO_CANID_11BIT,
-	ELM327_TX_DO_CANID_29BIT_LOW,
-	ELM327_TX_DO_CANID_29BIT_HIGH,
-	ELM327_TX_DO_CAN_CONFIG_PART2,
-	ELM327_TX_DO_CAN_CONFIG,
-	ELM327_TX_DO_RESPONSES,
-	ELM327_TX_DO_SILENT_MONITOR,
-	ELM327_TX_DO_INIT
+enum can327_tx_do {
+	CAN327_TX_DO_CAN_DATA = 0,
+	CAN327_TX_DO_CANID_11BIT,
+	CAN327_TX_DO_CANID_29BIT_LOW,
+	CAN327_TX_DO_CANID_29BIT_HIGH,
+	CAN327_TX_DO_CAN_CONFIG_PART2,
+	CAN327_TX_DO_CAN_CONFIG,
+	CAN327_TX_DO_RESPONSES,
+	CAN327_TX_DO_SILENT_MONITOR,
+	CAN327_TX_DO_INIT
 };
 
 struct can327 {
@@ -84,8 +84,8 @@ struct can327 {
 	struct can_rx_offload offload;
 
 	/* TTY buffers */
-	u8 txbuf[ELM327_SIZE_TXBUF];
-	u8 rxbuf[ELM327_SIZE_RXBUF];
+	u8 txbuf[CAN327_SIZE_TXBUF];
+	u8 rxbuf[CAN327_SIZE_RXBUF];
 
 	/* Per-channel lock */
 	spinlock_t lock;
@@ -102,10 +102,10 @@ struct can327 {
 
 	/* State machine */
 	enum {
-		ELM327_STATE_NOTINIT = 0,
-		ELM327_STATE_GETDUMMYCHAR,
-		ELM327_STATE_GETPROMPT,
-		ELM327_STATE_RECEIVING,
+		CAN327_STATE_NOTINIT = 0,
+		CAN327_STATE_GETDUMMYCHAR,
+		CAN327_STATE_GETPROMPT,
+		CAN327_STATE_RECEIVING,
 	} state;
 
 	/* Things we have yet to send */
@@ -130,9 +130,9 @@ struct can327 {
 	bool uart_side_failure;
 };
 
-static inline void elm327_uart_side_failure(struct can327 *elm);
+static inline void can327_uart_side_failure(struct can327 *elm);
 
-static void elm327_send(struct can327 *elm, const void *buf, size_t len)
+static void can327_send(struct can327 *elm, const void *buf, size_t len)
 {
 	int written;
 
@@ -157,7 +157,7 @@ static void elm327_send(struct can327 *elm, const void *buf, size_t len)
 		netdev_err(elm->dev,
 			   "Failed to write to tty %s.\n",
 			   elm->tty->name);
-		elm327_uart_side_failure(elm);
+		can327_uart_side_failure(elm);
 		return;
 	}
 
@@ -166,24 +166,24 @@ static void elm327_send(struct can327 *elm, const void *buf, size_t len)
 }
 
 /* Take the ELM327 out of almost any state and back into command mode.
- * We send ELM327_DUMMY_CHAR which will either abort any running
+ * We send CAN327_DUMMY_CHAR which will either abort any running
  * operation, or be echoed back to us in case we're already in command
  * mode.
  */
-static void elm327_kick_into_cmd_mode(struct can327 *elm)
+static void can327_kick_into_cmd_mode(struct can327 *elm)
 {
 	lockdep_assert_held(&elm->lock);
 
-	if (elm->state != ELM327_STATE_GETDUMMYCHAR &&
-	    elm->state != ELM327_STATE_GETPROMPT) {
-		elm327_send(elm, ELM327_DUMMY_STRING, 1);
+	if (elm->state != CAN327_STATE_GETDUMMYCHAR &&
+	    elm->state != CAN327_STATE_GETPROMPT) {
+		can327_send(elm, CAN327_DUMMY_STRING, 1);
 
-		elm->state = ELM327_STATE_GETDUMMYCHAR;
+		elm->state = CAN327_STATE_GETDUMMYCHAR;
 	}
 }
 
 /* Schedule a CAN frame and necessary config changes to be sent to the TTY. */
-static void elm327_send_frame(struct can327 *elm, struct can_frame *frame)
+static void can327_send_frame(struct can327 *elm, struct can_frame *frame)
 {
 	lockdep_assert_held(&elm->lock);
 
@@ -194,36 +194,36 @@ static void elm327_send_frame(struct can327 *elm, struct can_frame *frame)
 		    & CAN_EFF_FLAG) {
 			elm->can_config = (frame->can_id & CAN_EFF_FLAG
 						? 0
-						: ELM327_CAN_CONFIG_SEND_SFF)
-					| ELM327_CAN_CONFIG_VARIABLE_DLC
-					| ELM327_CAN_CONFIG_RECV_BOTH_SFF_EFF
+						: CAN327_CAN_CONFIG_SEND_SFF)
+					| CAN327_CAN_CONFIG_VARIABLE_DLC
+					| CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF
 					| elm->can_bitrate_divisor;
 
-			set_bit(ELM327_TX_DO_CAN_CONFIG, &elm->cmds_todo);
+			set_bit(CAN327_TX_DO_CAN_CONFIG, &elm->cmds_todo);
 		}
 
 		if (frame->can_id & CAN_EFF_FLAG) {
-			clear_bit(ELM327_TX_DO_CANID_11BIT, &elm->cmds_todo);
-			set_bit(ELM327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo);
-			set_bit(ELM327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo);
+			clear_bit(CAN327_TX_DO_CANID_11BIT, &elm->cmds_todo);
+			set_bit(CAN327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo);
+			set_bit(CAN327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo);
 		} else {
-			set_bit(ELM327_TX_DO_CANID_11BIT, &elm->cmds_todo);
-			clear_bit(ELM327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo);
-			clear_bit(ELM327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo);
+			set_bit(CAN327_TX_DO_CANID_11BIT, &elm->cmds_todo);
+			clear_bit(CAN327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo);
+			clear_bit(CAN327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo);
 		}
 	}
 
 	/* Schedule the CAN frame itself. */
 	elm->can_frame_to_send = *frame;
-	set_bit(ELM327_TX_DO_CAN_DATA, &elm->cmds_todo);
+	set_bit(CAN327_TX_DO_CAN_DATA, &elm->cmds_todo);
 
-	elm327_kick_into_cmd_mode(elm);
+	can327_kick_into_cmd_mode(elm);
 }
 
 /* ELM327 initialisation sequence.
- * The line length is limited by the buffer in elm327_handle_prompt().
+ * The line length is limited by the buffer in can327_handle_prompt().
  */
-static char *elm327_init_script[] = {
+static char *can327_init_script[] = {
 	"AT WS\r",        /* v1.0: Warm Start */
 	"AT PP FF OFF\r", /* v1.0: All Programmable Parameters Off */
 	"AT M0\r",        /* v1.0: Memory Off */
@@ -245,11 +245,11 @@ static char *elm327_init_script[] = {
 	NULL
 };
 
-static void elm327_init(struct can327 *elm)
+static void can327_init_device(struct can327 *elm)
 {
 	lockdep_assert_held(&elm->lock);
 
-	elm->state = ELM327_STATE_NOTINIT;
+	elm->state = CAN327_STATE_NOTINIT;
 	elm->can_frame_to_send.can_id = 0x7df; /* ELM327 HW default */
 	elm->rxfill = 0;
 	elm->drop_next_line = 0;
@@ -259,22 +259,22 @@ static void elm327_init(struct can327 *elm)
 	 * limit the user to the right values.
 	 */
 	elm->can_bitrate_divisor = 500000 / elm->can.bittiming.bitrate;
-	elm->can_config = ELM327_CAN_CONFIG_SEND_SFF
-			| ELM327_CAN_CONFIG_VARIABLE_DLC
-			| ELM327_CAN_CONFIG_RECV_BOTH_SFF_EFF
+	elm->can_config = CAN327_CAN_CONFIG_SEND_SFF
+			| CAN327_CAN_CONFIG_VARIABLE_DLC
+			| CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF
 			| elm->can_bitrate_divisor;
 
 	/* Configure ELM327 and then start monitoring */
-	elm->next_init_cmd = &elm327_init_script[0];
-	set_bit(ELM327_TX_DO_INIT, &elm->cmds_todo);
-	set_bit(ELM327_TX_DO_SILENT_MONITOR, &elm->cmds_todo);
-	set_bit(ELM327_TX_DO_RESPONSES, &elm->cmds_todo);
-	set_bit(ELM327_TX_DO_CAN_CONFIG, &elm->cmds_todo);
+	elm->next_init_cmd = &can327_init_script[0];
+	set_bit(CAN327_TX_DO_INIT, &elm->cmds_todo);
+	set_bit(CAN327_TX_DO_SILENT_MONITOR, &elm->cmds_todo);
+	set_bit(CAN327_TX_DO_RESPONSES, &elm->cmds_todo);
+	set_bit(CAN327_TX_DO_CAN_CONFIG, &elm->cmds_todo);
 
-	elm327_kick_into_cmd_mode(elm);
+	can327_kick_into_cmd_mode(elm);
 }
 
-static void elm327_feed_frame_to_netdev(struct can327 *elm,
+static void can327_feed_frame_to_netdev(struct can327 *elm,
 					struct sk_buff *skb)
 {
 	lockdep_assert_held(&elm->lock);
@@ -295,7 +295,7 @@ static void elm327_feed_frame_to_netdev(struct can327 *elm,
 }
 
 /* Called when we're out of ideas and just want it all to end. */
-static inline void elm327_uart_side_failure(struct can327 *elm)
+static inline void can327_uart_side_failure(struct can327 *elm)
 {
 	struct can_frame *frame;
 	struct sk_buff *skb;
@@ -318,7 +318,7 @@ static inline void elm327_uart_side_failure(struct can327 *elm)
 		return;
 
 	frame->can_id |= CAN_ERR_BUSOFF;
-	elm327_feed_frame_to_netdev(elm, skb);
+	can327_feed_frame_to_netdev(elm, skb);
 }
 
 /* Compares a byte buffer (non-NUL terminated) to the payload part of a string,
@@ -331,14 +331,14 @@ static inline void elm327_uart_side_failure(struct can327 *elm)
  * The reason to use strings is so we can easily include them in the C code,
  * and to avoid hardcoding lengths.
  */
-static inline bool elm327_rxbuf_cmp(const u8 *buf, size_t nbytes, const char *reference)
+static inline bool can327_rxbuf_cmp(const u8 *buf, size_t nbytes, const char *reference)
 {
 	size_t ref_len = strlen(reference);
 
 	return (nbytes == ref_len) && !memcmp(buf, reference, ref_len);
 }
 
-static void elm327_parse_error(struct can327 *elm, size_t len)
+static void can327_parse_error(struct can327 *elm, size_t len)
 {
 	struct can_frame *frame;
 	struct sk_buff *skb;
@@ -353,26 +353,26 @@ static void elm327_parse_error(struct can327 *elm, size_t len)
 		return;
 
 	/* Filter possible error messages based on length of RX'd line */
-	if (elm327_rxbuf_cmp(elm->rxbuf, len, "UNABLE TO CONNECT")) {
+	if (can327_rxbuf_cmp(elm->rxbuf, len, "UNABLE TO CONNECT")) {
 		netdev_err(elm->dev,
 			   "ELM327 reported UNABLE TO CONNECT. Please check your setup.\n");
-	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "BUFFER FULL")) {
+	} else if (can327_rxbuf_cmp(elm->rxbuf, len, "BUFFER FULL")) {
 		/* This will only happen if the last data line was complete.
-		 * Otherwise, elm327_parse_frame() will heuristically
+		 * Otherwise, can327_parse_frame() will heuristically
 		 * emit this kind of error frame instead.
 		 */
 		frame->can_id |= CAN_ERR_CRTL;
 		frame->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
-	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "BUS ERROR")) {
+	} else if (can327_rxbuf_cmp(elm->rxbuf, len, "BUS ERROR")) {
 		frame->can_id |= CAN_ERR_BUSERROR;
-	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "CAN ERROR")) {
+	} else if (can327_rxbuf_cmp(elm->rxbuf, len, "CAN ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
-	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "<RX ERROR")) {
+	} else if (can327_rxbuf_cmp(elm->rxbuf, len, "<RX ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
-	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "BUS BUSY")) {
+	} else if (can327_rxbuf_cmp(elm->rxbuf, len, "BUS BUSY")) {
 		frame->can_id |= CAN_ERR_PROT;
 		frame->data[2] = CAN_ERR_PROT_OVERLOAD;
-	} else if (elm327_rxbuf_cmp(elm->rxbuf, len, "FB ERROR")) {
+	} else if (can327_rxbuf_cmp(elm->rxbuf, len, "FB ERROR")) {
 		frame->can_id |= CAN_ERR_PROT;
 		frame->data[2] = CAN_ERR_PROT_TX;
 	} else if (len == 5 && !memcmp(elm->rxbuf, "ERR", 3)) {
@@ -387,7 +387,7 @@ static void elm327_parse_error(struct can327 *elm, size_t len)
 		 */
 	}
 
-	elm327_feed_frame_to_netdev(elm, skb);
+	can327_feed_frame_to_netdev(elm, skb);
 }
 
 /* Parse CAN frames coming as ASCII from ELM327.
@@ -402,7 +402,7 @@ static void elm327_parse_error(struct can327 *elm, size_t len)
  *
  * We will use the spaces and line length to guess the format.
  */
-static int elm327_parse_frame(struct can327 *elm, size_t len)
+static int can327_parse_frame(struct can327 *elm, size_t len)
 {
 	struct can_frame *frame;
 	struct sk_buff *skb;
@@ -511,7 +511,7 @@ static int elm327_parse_frame(struct can327 *elm, size_t len)
 		frame->can_id = CAN_ERR_FLAG | CAN_ERR_CRTL;
 		frame->len = CAN_ERR_DLC;
 		frame->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
-		elm327_feed_frame_to_netdev(elm, skb);
+		can327_feed_frame_to_netdev(elm, skb);
 
 		/* Signal failure to parse.
 		 * The line will be re-parsed as an error line, which will fail.
@@ -529,12 +529,12 @@ static int elm327_parse_frame(struct can327 *elm, size_t len)
 	}
 
 	/* Feed the frame to the network layer. */
-	elm327_feed_frame_to_netdev(elm, skb);
+	can327_feed_frame_to_netdev(elm, skb);
 
 	return 0;
 }
 
-static void elm327_parse_line(struct can327 *elm, size_t len)
+static void can327_parse_line(struct can327 *elm, size_t len)
 {
 	lockdep_assert_held(&elm->lock);
 
@@ -551,22 +551,22 @@ static void elm327_parse_line(struct can327 *elm, size_t len)
 	}
 
 	/* Regular parsing */
-	if (elm->state == ELM327_STATE_RECEIVING &&
-	    elm327_parse_frame(elm, len)) {
+	if (elm->state == CAN327_STATE_RECEIVING &&
+	    can327_parse_frame(elm, len)) {
 		/* Parse an error line. */
-		elm327_parse_error(elm, len);
+		can327_parse_error(elm, len);
 
 		/* Start afresh. */
-		elm327_kick_into_cmd_mode(elm);
+		can327_kick_into_cmd_mode(elm);
 	}
 }
 
-static void elm327_handle_prompt(struct can327 *elm)
+static void can327_handle_prompt(struct can327 *elm)
 {
 	struct can_frame *frame = &elm->can_frame_to_send;
 	/* Size this buffer for the largest ELM327 line we may generate,
 	 * which is currently an 8 byte CAN frame's payload hexdump.
-	 * Items in elm327_init_script must fit here, too!
+	 * Items in can327_init_script must fit here, too!
 	 */
 	char local_txbuf[sizeof("0102030405060708\r")];
 
@@ -574,8 +574,8 @@ static void elm327_handle_prompt(struct can327 *elm)
 
 	if (!elm->cmds_todo) {
 		/* Enter CAN monitor mode */
-		elm327_send(elm, "ATMA\r", 5);
-		elm->state = ELM327_STATE_RECEIVING;
+		can327_send(elm, "ATMA\r", 5);
+		elm->state = CAN327_STATE_RECEIVING;
 
 		/* We will be in the default state once this command is
 		 * sent, so enable the TX packet queue.
@@ -586,53 +586,53 @@ static void elm327_handle_prompt(struct can327 *elm)
 	}
 
 	/* Reconfigure ELM327 step by step as indicated by elm->cmds_todo */
-	if (test_bit(ELM327_TX_DO_INIT, &elm->cmds_todo)) {
+	if (test_bit(CAN327_TX_DO_INIT, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "%s",
 			 *elm->next_init_cmd);
 
 		elm->next_init_cmd++;
 		if (!(*elm->next_init_cmd)) {
-			clear_bit(ELM327_TX_DO_INIT, &elm->cmds_todo);
+			clear_bit(CAN327_TX_DO_INIT, &elm->cmds_todo);
 			/* Init finished. */
 		}
 
-	} else if (test_and_clear_bit(ELM327_TX_DO_SILENT_MONITOR, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(CAN327_TX_DO_SILENT_MONITOR, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "ATCSM%i\r",
 			 !!(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
 
-	} else if (test_and_clear_bit(ELM327_TX_DO_RESPONSES, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(CAN327_TX_DO_RESPONSES, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "ATR%i\r",
 			 !(elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY));
 
-	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_CONFIG, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(CAN327_TX_DO_CAN_CONFIG, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "ATPC\r");
-		set_bit(ELM327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo);
+		set_bit(CAN327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo);
 
-	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(CAN327_TX_DO_CAN_CONFIG_PART2, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "ATPB%04X\r",
 			 elm->can_config);
 
-	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(CAN327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "ATCP%02X\r",
 			 (frame->can_id & CAN_EFF_MASK) >> 24);
 
-	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(CAN327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "ATSH%06X\r",
 			 frame->can_id & CAN_EFF_MASK & ((1 << 24) - 1));
 
-	} else if (test_and_clear_bit(ELM327_TX_DO_CANID_11BIT, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(CAN327_TX_DO_CANID_11BIT, &elm->cmds_todo)) {
 		snprintf(local_txbuf, sizeof(local_txbuf),
 			 "ATSH%03X\r",
 			 frame->can_id & CAN_SFF_MASK);
 
-	} else if (test_and_clear_bit(ELM327_TX_DO_CAN_DATA, &elm->cmds_todo)) {
+	} else if (test_and_clear_bit(CAN327_TX_DO_CAN_DATA, &elm->cmds_todo)) {
 		if (frame->can_id & CAN_RTR_FLAG) {
 			/* Send an RTR frame. Their DLC is fixed.
 			 * Some chips don't send them at all.
@@ -654,7 +654,7 @@ static void elm327_handle_prompt(struct can327 *elm)
 		}
 
 		elm->drop_next_line = 1;
-		elm->state = ELM327_STATE_RECEIVING;
+		elm->state = CAN327_STATE_RECEIVING;
 
 		/* We will be in the default state once this command is
 		 * sent, so enable the TX packet queue.
@@ -662,84 +662,84 @@ static void elm327_handle_prompt(struct can327 *elm)
 		netif_wake_queue(elm->dev);
 	}
 
-	elm327_send(elm, local_txbuf, strlen(local_txbuf));
+	can327_send(elm, local_txbuf, strlen(local_txbuf));
 }
 
-static bool elm327_is_ready_char(char c)
+static bool can327_is_ready_char(char c)
 {
 	/* Bits 0xc0 are sometimes set (randomly), hence the mask.
 	 * Probably bad hardware.
 	 */
-	return (c & 0x3f) == ELM327_READY_CHAR;
+	return (c & 0x3f) == CAN327_READY_CHAR;
 }
 
-static void elm327_drop_bytes(struct can327 *elm, size_t i)
+static void can327_drop_bytes(struct can327 *elm, size_t i)
 {
 	lockdep_assert_held(&elm->lock);
 
-	memmove(&elm->rxbuf[0], &elm->rxbuf[i], ELM327_SIZE_RXBUF - i);
+	memmove(&elm->rxbuf[0], &elm->rxbuf[i], CAN327_SIZE_RXBUF - i);
 	elm->rxfill -= i;
 }
 
-static void elm327_parse_rxbuf(struct can327 *elm, size_t first_new_char_idx)
+static void can327_parse_rxbuf(struct can327 *elm, size_t first_new_char_idx)
 {
 	size_t len, pos;
 
 	lockdep_assert_held(&elm->lock);
 
 	switch (elm->state) {
-	case ELM327_STATE_NOTINIT:
+	case CAN327_STATE_NOTINIT:
 		elm->rxfill = 0;
 		break;
 
-	case ELM327_STATE_GETDUMMYCHAR:
+	case CAN327_STATE_GETDUMMYCHAR:
 		/* Wait for 'y' or '>' */
 		for (pos = 0; pos < elm->rxfill; pos++) {
-			if (elm->rxbuf[pos] == ELM327_DUMMY_CHAR) {
-				elm327_send(elm, "\r", 1);
-				elm->state = ELM327_STATE_GETPROMPT;
+			if (elm->rxbuf[pos] == CAN327_DUMMY_CHAR) {
+				can327_send(elm, "\r", 1);
+				elm->state = CAN327_STATE_GETPROMPT;
 				pos++;
 				break;
-			} else if (elm327_is_ready_char(elm->rxbuf[pos])) {
-				elm327_send(elm, ELM327_DUMMY_STRING, 1);
+			} else if (can327_is_ready_char(elm->rxbuf[pos])) {
+				can327_send(elm, CAN327_DUMMY_STRING, 1);
 				pos++;
 				break;
 			}
 		}
 
-		elm327_drop_bytes(elm, pos);
+		can327_drop_bytes(elm, pos);
 		break;
 
-	case ELM327_STATE_GETPROMPT:
+	case CAN327_STATE_GETPROMPT:
 		/* Wait for '>' */
-		if (elm327_is_ready_char(elm->rxbuf[elm->rxfill - 1]))
-			elm327_handle_prompt(elm);
+		if (can327_is_ready_char(elm->rxbuf[elm->rxfill - 1]))
+			can327_handle_prompt(elm);
 
 		elm->rxfill = 0;
 		break;
 
-	case ELM327_STATE_RECEIVING:
+	case CAN327_STATE_RECEIVING:
 		/* Find <CR> delimiting feedback lines. */
 		len = first_new_char_idx;
 		while (len < elm->rxfill && elm->rxbuf[len] != '\r')
 			len++;
 
-		if (len == ELM327_SIZE_RXBUF) {
+		if (len == CAN327_SIZE_RXBUF) {
 			/* Assume the buffer ran full with garbage.
 			 * Did we even connect at the right baud rate?
 			 */
 			netdev_err(elm->dev,
 				   "RX buffer overflow. Faulty ELM327 or UART?\n");
-			elm327_uart_side_failure(elm);
+			can327_uart_side_failure(elm);
 		} else if (len == elm->rxfill) {
-			if (elm327_is_ready_char(elm->rxbuf[elm->rxfill - 1])) {
+			if (can327_is_ready_char(elm->rxbuf[elm->rxfill - 1])) {
 				/* The ELM327's AT ST response timeout ran out,
 				 * so we got a prompt.
 				 * Clear RX buffer and restart listening.
 				 */
 				elm->rxfill = 0;
 
-				elm327_handle_prompt(elm);
+				can327_handle_prompt(elm);
 			}
 
 			/* No <CR> found - we haven't received a full line yet.
@@ -747,14 +747,14 @@ static void elm327_parse_rxbuf(struct can327 *elm, size_t first_new_char_idx)
 			 */
 		} else {
 			/* We have a full line to parse. */
-			elm327_parse_line(elm, len);
+			can327_parse_line(elm, len);
 
 			/* Remove parsed data from RX buffer. */
-			elm327_drop_bytes(elm, len + 1);
+			can327_drop_bytes(elm, len + 1);
 
 			/* More data to parse? */
 			if (elm->rxfill)
-				elm327_parse_rxbuf(elm, 0);
+				can327_parse_rxbuf(elm, 0);
 		}
 	}
 }
@@ -808,14 +808,14 @@ static int can327_netdev_open(struct net_device *dev)
 		return err;
 	}
 
-	elm327_init(elm);
+	can327_init_device(elm);
 	spin_unlock_bh(&elm->lock);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
 	elm->offload.mailbox_read = can327_mailbox_read;
-	err = can_rx_offload_add_fifo(dev, &elm->offload, ELM327_NAPI_WEIGHT);
+	err = can_rx_offload_add_fifo(dev, &elm->offload, CAN327_NAPI_WEIGHT);
 #else
-	err = can_rx_offload_add_manual(dev, &elm->offload, ELM327_NAPI_WEIGHT);
+	err = can_rx_offload_add_manual(dev, &elm->offload, CAN327_NAPI_WEIGHT);
 #endif
 	if (err) {
 		close_candev(dev);
@@ -836,7 +836,7 @@ static int can327_netdev_close(struct net_device *dev)
 
 	/* Interrupt whatever the ELM327 is doing right now */
 	spin_lock_bh(&elm->lock);
-	elm327_send(elm, ELM327_DUMMY_STRING, 1);
+	can327_send(elm, CAN327_DUMMY_STRING, 1);
 	spin_unlock_bh(&elm->lock);
 
 	netif_stop_queue(dev);
@@ -883,7 +883,7 @@ static netdev_tx_t can327_netdev_start_xmit(struct sk_buff *skb,
 	 * See Documentation/networking/netdevices.txt
 	 */
 	spin_lock(&elm->lock);
-	elm327_send_frame(elm, frame);
+	can327_send_frame(elm, frame);
 	spin_unlock(&elm->lock);
 
 	dev->stats.tx_packets++;
@@ -910,7 +910,7 @@ static bool can327_is_valid_rx_char(u8 c)
 		['0'] = true, true, true, true, true,
 		['5'] = true, true, true, true, true,
 		['<'] = true,
-		[ELM327_READY_CHAR] = true,
+		[CAN327_READY_CHAR] = true,
 		['?'] = true,
 		['A'] = true, true, true, true, true, true, true,
 		['H'] = true, true, true, true, true, true, true,
@@ -919,9 +919,9 @@ static bool can327_is_valid_rx_char(u8 c)
 		['a'] = true,
 		['b'] = true,
 		['v'] = true,
-		[ELM327_DUMMY_CHAR] = true,
+		[CAN327_DUMMY_CHAR] = true,
 	};
-	BUILD_BUG_ON(ELM327_DUMMY_CHAR >= 'z');
+	BUILD_BUG_ON(CAN327_DUMMY_CHAR >= 'z');
 
 	return (c < ARRAY_SIZE(lut_char_is_valid) &&
 		lut_char_is_valid[c]);
@@ -947,16 +947,16 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 
 	spin_lock_bh(&elm->lock);
 
-	/* Store old rxfill, so elm327_parse_rxbuf() will have
+	/* Store old rxfill, so can327_parse_rxbuf() will have
 	 * the option of skipping already checked characters.
 	 */
 	first_new_char_idx = elm->rxfill;
 
-	while (count-- && elm->rxfill < ELM327_SIZE_RXBUF) {
+	while (count-- && elm->rxfill < CAN327_SIZE_RXBUF) {
 		if (fp && *fp++) {
 			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
 
-			elm327_uart_side_failure(elm);
+			can327_uart_side_failure(elm);
 
 			spin_unlock_bh(&elm->lock);
 			return;
@@ -975,7 +975,7 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 				netdev_err(elm->dev,
 					   "Received illegal character %02x.\n",
 					   *cp);
-				elm327_uart_side_failure(elm);
+				can327_uart_side_failure(elm);
 
 				spin_unlock_bh(&elm->lock);
 				return;
@@ -990,13 +990,13 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 	if (count >= 0) {
 		netdev_err(elm->dev, "Receive buffer overflowed. Bad chip or wiring? count = %i", count);
 
-		elm327_uart_side_failure(elm);
+		can327_uart_side_failure(elm);
 
 		spin_unlock_bh(&elm->lock);
 		return;
 	}
 
-	elm327_parse_rxbuf(elm, first_new_char_idx);
+	can327_parse_rxbuf(elm, first_new_char_idx);
 	spin_unlock_bh(&elm->lock);
 }
 
@@ -1019,7 +1019,7 @@ static void can327_ldisc_tx_worker(struct work_struct *work)
 			netdev_err(elm->dev,
 				   "Failed to write to tty %s.\n",
 				   elm->tty->name);
-			elm327_uart_side_failure(elm);
+			can327_uart_side_failure(elm);
 
 			spin_unlock_bh(&elm->lock);
 			return;
