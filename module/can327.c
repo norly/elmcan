@@ -518,7 +518,6 @@ static int can327_parse_frame(struct can327 *elm, size_t len)
 		 * However, this will correctly drop the state machine back into
 		 * command mode.
 		 */
-		kfree_skb(skb);
 		return -ENODATA;
 	}
 
