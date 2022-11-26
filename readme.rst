@@ -3,6 +3,21 @@
 can327: ELM327 driver for Linux SocketCAN
 ==========================================
 
+Upstream
+--------
+
+This driver has become an official part of Linux since v6.0:
+
+    https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/net/can/can327.c?h=v6.0
+
+Please send patches upstream to [linux-can] and the maintainers for
+this driver.
+
+I may or may not backport upstream patches to this downstream
+repository, and/or use it for further pre-upstream work.
+
+
+
 Out-of-tree version
 --------------------
 
