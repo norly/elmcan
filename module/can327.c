@@ -757,7 +757,9 @@ static void can327_parse_rxbuf(struct can327 *elm, size_t first_new_char_idx)
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
-/* Dummy needed to use can_rx_offload */
+/* Dummy needed to use can_rx_offload
+ * Fixed in v5.10 - 728fc9ff73d3
+ */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5,5,0)
 static unsigned int *can327_mailbox_read(struct can_rx_offload *offload,
 					 struct can_frame *cf,
@@ -813,6 +815,7 @@ static int can327_netdev_open(struct net_device *dev)
 	elm->offload.mailbox_read = can327_mailbox_read;
 	err = can_rx_offload_add_fifo(dev, &elm->offload, CAN327_NAPI_WEIGHT);
 #else
+	/* Fixed in v5.10 - 728fc9ff73d3 */
 	err = can_rx_offload_add_manual(dev, &elm->offload, CAN327_NAPI_WEIGHT);
 #endif
 	if (err) {
@@ -861,11 +864,11 @@ static netdev_tx_t can327_netdev_start_xmit(struct sk_buff *skb,
 	if (can_dropped_invalid_skb(dev, skb))
 		return NETDEV_TX_OK;
 
-	/* This check will be part of can_dropped_invalid_skb()
-	 * in future kernels.
-	 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
+	/* Fixed in v6.0 - a6d190f8c767 */
 	if (elm->can.ctrlmode & CAN_CTRLMODE_LISTENONLY)
 		goto out;
+#endif
 
 	/* We shouldn't get here after a hardware fault:
 	 * can_bus_off() calls netif_carrier_off()
@@ -1058,11 +1061,15 @@ static const u32 can327_bitrate_const[] = {
 	62500, 71428, 83333, 100000, 125000, 166666, 250000, 500000
 };
 
-/* Dummy needed to use bitrate_const */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
+/* Dummy needed to use bitrate_const
+ * Fixed in v6.0 - 7e193a42c37c
+ */
 static int can327_do_set_bittiming(struct net_device *netdev)
 {
 	return 0;
 }
+#endif
 
 static int can327_ldisc_open(struct tty_struct *tty)
 {
@@ -1089,7 +1096,10 @@ static int can327_ldisc_open(struct tty_struct *tty)
 	/* Configure CAN metadata */
 	elm->can.bitrate_const = can327_bitrate_const;
 	elm->can.bitrate_const_cnt = ARRAY_SIZE(can327_bitrate_const);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0)
+	/* Fixed in v6.0 - 7e193a42c37c */
 	elm->can.do_set_bittiming = can327_do_set_bittiming;
+#endif
 	elm->can.ctrlmode_supported = CAN_CTRLMODE_LISTENONLY;
 
 	/* Configure netdev interface */
