@@ -55,10 +55,10 @@
 #define CAN327_SIZE_TXBUF 32
 #define CAN327_SIZE_RXBUF 1024
 
-#define CAN327_CAN_CONFIG_SEND_SFF           0x8000
-#define CAN327_CAN_CONFIG_VARIABLE_DLC       0x4000
-#define CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF  0x2000
-#define CAN327_CAN_CONFIG_BAUDRATE_MULT_8_7  0x1000
+#define CAN327_CAN_CONFIG_SEND_SFF 0x8000
+#define CAN327_CAN_CONFIG_VARIABLE_DLC 0x4000
+#define CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF 0x2000
+#define CAN327_CAN_CONFIG_BAUDRATE_MULT_8_7 0x1000
 
 #define CAN327_DUMMY_CHAR 'y'
 #define CAN327_DUMMY_STRING "y"
@@ -74,7 +74,7 @@ enum can327_tx_do {
 	CAN327_TX_DO_CAN_CONFIG,
 	CAN327_TX_DO_RESPONSES,
 	CAN327_TX_DO_SILENT_MONITOR,
-	CAN327_TX_DO_INIT
+	CAN327_TX_DO_INIT,
 };
 
 struct can327 {
@@ -154,8 +154,7 @@ static void can327_send(struct can327 *elm, const void *buf, size_t len)
 	set_bit(TTY_DO_WRITE_WAKEUP, &elm->tty->flags);
 	written = elm->tty->ops->write(elm->tty, elm->txbuf, len);
 	if (written < 0) {
-		netdev_err(elm->dev,
-			   "Failed to write to tty %s.\n",
+		netdev_err(elm->dev, "Failed to write to tty %s.\n",
 			   elm->tty->name);
 		can327_uart_side_failure(elm);
 		return;
@@ -192,12 +191,11 @@ static void can327_send_frame(struct can327 *elm, struct can_frame *frame)
 		/* Set the new CAN ID for transmission. */
 		if ((frame->can_id ^ elm->can_frame_to_send.can_id)
 		    & CAN_EFF_FLAG) {
-			elm->can_config = (frame->can_id & CAN_EFF_FLAG
-						? 0
-						: CAN327_CAN_CONFIG_SEND_SFF)
-					| CAN327_CAN_CONFIG_VARIABLE_DLC
-					| CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF
-					| elm->can_bitrate_divisor;
+			elm->can_config =
+				(frame->can_id & CAN_EFF_FLAG ? 0 : CAN327_CAN_CONFIG_SEND_SFF) |
+				CAN327_CAN_CONFIG_VARIABLE_DLC |
+				CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF |
+				elm->can_bitrate_divisor;
 
 			set_bit(CAN327_TX_DO_CAN_CONFIG, &elm->cmds_todo);
 		}
@@ -208,8 +206,10 @@ static void can327_send_frame(struct can327 *elm, struct can_frame *frame)
 			set_bit(CAN327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo);
 		} else {
 			set_bit(CAN327_TX_DO_CANID_11BIT, &elm->cmds_todo);
-			clear_bit(CAN327_TX_DO_CANID_29BIT_LOW, &elm->cmds_todo);
-			clear_bit(CAN327_TX_DO_CANID_29BIT_HIGH, &elm->cmds_todo);
+			clear_bit(CAN327_TX_DO_CANID_29BIT_LOW,
+				  &elm->cmds_todo);
+			clear_bit(CAN327_TX_DO_CANID_29BIT_HIGH,
+				  &elm->cmds_todo);
 		}
 	}
 
@@ -259,10 +259,9 @@ static void can327_init_device(struct can327 *elm)
 	 * limit the user to the right values.
 	 */
 	elm->can_bitrate_divisor = 500000 / elm->can.bittiming.bitrate;
-	elm->can_config = CAN327_CAN_CONFIG_SEND_SFF
-			| CAN327_CAN_CONFIG_VARIABLE_DLC
-			| CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF
-			| elm->can_bitrate_divisor;
+	elm->can_config =
+		CAN327_CAN_CONFIG_SEND_SFF | CAN327_CAN_CONFIG_VARIABLE_DLC |
+		CAN327_CAN_CONFIG_RECV_BOTH_SFF_EFF | elm->can_bitrate_divisor;
 
 	/* Configure ELM327 and then start monitoring */
 	elm->next_init_cmd = &can327_init_script[0];
@@ -311,7 +310,8 @@ static inline void can327_uart_side_failure(struct can327 *elm)
 	elm->can.state = CAN_STATE_BUS_OFF;
 	can_bus_off(elm->dev);
 
-	netdev_err(elm->dev, "ELM327 misbehaved. Blocking further communication.\n");
+	netdev_err(elm->dev,
+		   "ELM327 misbehaved. Blocking further communication.\n");
 
 	skb = alloc_can_err_skb(elm->dev, &frame);
 	if (!skb)
@@ -321,17 +321,18 @@ static inline void can327_uart_side_failure(struct can327 *elm)
 	can327_feed_frame_to_netdev(elm, skb);
 }
 
-/* Compares a byte buffer (non-NUL terminated) to the payload part of a string,
- * and returns true iff the buffer (content *and* length) is exactly that
- * string, without the terminating NUL byte.
+/* Compares a byte buffer (non-NUL terminated) to the payload part of
+ * a string, and returns true iff the buffer (content *and* length) is
+ * exactly that string, without the terminating NUL byte.
  *
  * Example: If reference is "BUS ERROR", then this returns true iff nbytes == 9
  *          and !memcmp(buf, "BUS ERROR", 9).
  *
- * The reason to use strings is so we can easily include them in the C code,
- * and to avoid hardcoding lengths.
+ * The reason to use strings is so we can easily include them in the C
+ * code, and to avoid hardcoding lengths.
  */
-static inline bool can327_rxbuf_cmp(const u8 *buf, size_t nbytes, const char *reference)
+static inline bool can327_rxbuf_cmp(const u8 *buf, size_t nbytes,
+				    const char *reference)
 {
 	size_t ref_len = strlen(reference);
 
@@ -431,10 +432,8 @@ static int can327_parse_frame(struct can327 *elm, size_t len)
 	/* Sanity check whether the line is really a clean hexdump,
 	 * or terminated by an error message, or contains garbage.
 	 */
-	if (hexlen < len &&
-	    !isdigit(elm->rxbuf[hexlen]) &&
-	    !isupper(elm->rxbuf[hexlen]) &&
-	    '<' != elm->rxbuf[hexlen] &&
+	if (hexlen < len && !isdigit(elm->rxbuf[hexlen]) &&
+	    !isupper(elm->rxbuf[hexlen]) && '<' != elm->rxbuf[hexlen] &&
 	    ' ' != elm->rxbuf[hexlen]) {
 		/* The line is likely garbled anyway, so bail.
 		 * The main code will restart listening.
@@ -479,18 +478,18 @@ static int can327_parse_frame(struct can327 *elm, size_t len)
 
 	/* Read CAN ID */
 	if (frame->can_id & CAN_EFF_FLAG) {
-		frame->can_id |= (hex_to_bin(elm->rxbuf[0]) << 28)
-			       | (hex_to_bin(elm->rxbuf[1]) << 24)
-			       | (hex_to_bin(elm->rxbuf[3]) << 20)
-			       | (hex_to_bin(elm->rxbuf[4]) << 16)
-			       | (hex_to_bin(elm->rxbuf[6]) << 12)
-			       | (hex_to_bin(elm->rxbuf[7]) << 8)
-			       | (hex_to_bin(elm->rxbuf[9]) << 4)
-			       | (hex_to_bin(elm->rxbuf[10]) << 0);
+		frame->can_id |= (hex_to_bin(elm->rxbuf[0]) << 28) |
+				 (hex_to_bin(elm->rxbuf[1]) << 24) |
+				 (hex_to_bin(elm->rxbuf[3]) << 20) |
+				 (hex_to_bin(elm->rxbuf[4]) << 16) |
+				 (hex_to_bin(elm->rxbuf[6]) << 12) |
+				 (hex_to_bin(elm->rxbuf[7]) << 8) |
+				 (hex_to_bin(elm->rxbuf[9]) << 4) |
+				 (hex_to_bin(elm->rxbuf[10]) << 0);
 	} else {
-		frame->can_id |= (hex_to_bin(elm->rxbuf[0]) << 8)
-			       | (hex_to_bin(elm->rxbuf[1]) << 4)
-			       | (hex_to_bin(elm->rxbuf[2]) << 0);
+		frame->can_id |= (hex_to_bin(elm->rxbuf[0]) << 8) |
+				 (hex_to_bin(elm->rxbuf[1]) << 4) |
+				 (hex_to_bin(elm->rxbuf[2]) << 0);
 	}
 
 	/* Check for RTR frame */
@@ -523,8 +522,9 @@ static int can327_parse_frame(struct can327 *elm, size_t len)
 
 	/* Parse the data nibbles. */
 	for (i = 0; i < frame->len; i++) {
-		frame->data[i] = (hex_to_bin(elm->rxbuf[datastart + 3*i]) << 4)
-			       | (hex_to_bin(elm->rxbuf[datastart + 3*i + 1]));
+		frame->data[i] =
+			(hex_to_bin(elm->rxbuf[datastart + 3 * i]) << 4) |
+			(hex_to_bin(elm->rxbuf[datastart + 3 * i + 1]));
 	}
 
 	/* Feed the frame to the network layer. */
@@ -586,8 +586,7 @@ static void can327_handle_prompt(struct can327 *elm)
 
 	/* Reconfigure ELM327 step by step as indicated by elm->cmds_todo */
 	if (test_bit(CAN327_TX_DO_INIT, &elm->cmds_todo)) {
-		snprintf(local_txbuf, sizeof(local_txbuf),
-			 "%s",
+		snprintf(local_txbuf, sizeof(local_txbuf), "%s",
 			 *elm->next_init_cmd);
 
 		elm->next_init_cmd++;
@@ -636,15 +635,14 @@ static void can327_handle_prompt(struct can327 *elm)
 			/* Send an RTR frame. Their DLC is fixed.
 			 * Some chips don't send them at all.
 			 */
-			snprintf(local_txbuf, sizeof(local_txbuf),
-				 "ATRTR\r");
+			snprintf(local_txbuf, sizeof(local_txbuf), "ATRTR\r");
 		} else {
 			/* Send a regular CAN data frame */
 			int i;
 
 			for (i = 0; i < frame->len; i++) {
-				snprintf(&local_txbuf[2 * i], sizeof(local_txbuf),
-					 "%02X",
+				snprintf(&local_txbuf[2 * i],
+					 sizeof(local_txbuf), "%02X",
 					 frame->data[i]);
 			}
 
@@ -794,7 +792,8 @@ static int can327_netdev_open(struct net_device *dev)
 	}
 
 	if (elm->uart_side_failure)
-		netdev_warn(elm->dev, "Reopening netdev after a UART side fault has been detected.\n");
+		netdev_warn(elm->dev,
+			    "Reopening netdev after a UART side fault has been detected.\n");
 
 	/* Clear TTY buffers */
 	elm->rxfill = 0;
@@ -894,10 +893,10 @@ out:
 }
 
 static const struct net_device_ops can327_netdev_ops = {
-	.ndo_open	= can327_netdev_open,
-	.ndo_stop	= can327_netdev_close,
-	.ndo_start_xmit	= can327_netdev_start_xmit,
-	.ndo_change_mtu	= can_change_mtu,
+	.ndo_open = can327_netdev_open,
+	.ndo_stop = can327_netdev_close,
+	.ndo_start_xmit = can327_netdev_start_xmit,
+	.ndo_change_mtu = can_change_mtu,
 };
 
 static bool can327_is_valid_rx_char(u8 c)
@@ -922,8 +921,7 @@ static bool can327_is_valid_rx_char(u8 c)
 	};
 	BUILD_BUG_ON(CAN327_DUMMY_CHAR >= 'z');
 
-	return (c < ARRAY_SIZE(lut_char_is_valid) &&
-		lut_char_is_valid[c]);
+	return (c < ARRAY_SIZE(lut_char_is_valid) && lut_char_is_valid[c]);
 }
 
 /* Handle incoming ELM327 ASCII data.
@@ -953,7 +951,8 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 
 	while (count-- && elm->rxfill < CAN327_SIZE_RXBUF) {
 		if (fp && *fp++) {
-			netdev_err(elm->dev, "Error in received character stream. Check your wiring.");
+			netdev_err(elm->dev,
+				   "Error in received character stream. Check your wiring.");
 
 			can327_uart_side_failure(elm);
 
@@ -987,7 +986,9 @@ static void can327_ldisc_rx(struct tty_struct *tty,
 	}
 
 	if (count >= 0) {
-		netdev_err(elm->dev, "Receive buffer overflowed. Bad chip or wiring? count = %i", count);
+		netdev_err(elm->dev,
+			   "Receive buffer overflowed. Bad chip or wiring? count = %i",
+			   count);
 
 		can327_uart_side_failure(elm);
 
@@ -1013,10 +1014,10 @@ static void can327_ldisc_tx_worker(struct work_struct *work)
 	spin_lock_bh(&elm->lock);
 
 	if (elm->txleft) {
-		written = elm->tty->ops->write(elm->tty, elm->txhead, elm->txleft);
+		written = elm->tty->ops->write(elm->tty, elm->txhead,
+					       elm->txleft);
 		if (written < 0) {
-			netdev_err(elm->dev,
-				   "Failed to write to tty %s.\n",
+			netdev_err(elm->dev, "Failed to write to tty %s.\n",
 				   elm->tty->name);
 			can327_uart_side_failure(elm);
 
@@ -1047,13 +1048,13 @@ static void can327_ldisc_tx_wakeup(struct tty_struct *tty)
  * Currently we don't implement support for 7/8 rates.
  */
 static const u32 can327_bitrate_const[] = {
-	 7812,  7936,  8064,  8196,  8333,  8474,  8620,  8771,
-	 8928,  9090,  9259,  9433,  9615,  9803, 10000, 10204,
-	10416, 10638, 10869, 11111, 11363, 11627, 11904, 12195,
-	12500, 12820, 13157, 13513, 13888, 14285, 14705, 15151,
-	15625, 16129, 16666, 17241, 17857, 18518, 19230, 20000,
-	20833, 21739, 22727, 23809, 25000, 26315, 27777, 29411,
-	31250, 33333, 35714, 38461, 41666, 45454, 50000, 55555,
+	7812,  7936,  8064,  8196,   8333,   8474,   8620,   8771,
+	8928,  9090,  9259,  9433,   9615,   9803,   10000,  10204,
+	10416, 10638, 10869, 11111,  11363,  11627,  11904,  12195,
+	12500, 12820, 13157, 13513,  13888,  14285,  14705,  15151,
+	15625, 16129, 16666, 17241,  17857,  18518,  19230,  20000,
+	20833, 21739, 22727, 23809,  25000,  26315,  27777,  29411,
+	31250, 33333, 35714, 38461,  41666,  45454,  50000,  55555,
 	62500, 71428, 83333, 100000, 125000, 166666, 250000, 500000
 };
 
@@ -1168,14 +1169,14 @@ static int can327_ldisc_ioctl(struct tty_struct *tty,
 }
 
 static struct tty_ldisc_ops can327_ldisc = {
-	.owner		= THIS_MODULE,
-	.name		= "can327",
-	.num		= N_DEVELOPMENT,
-	.receive_buf	= can327_ldisc_rx,
-	.write_wakeup	= can327_ldisc_tx_wakeup,
-	.open		= can327_ldisc_open,
-	.close		= can327_ldisc_close,
-	.ioctl		= can327_ldisc_ioctl,
+	.owner = THIS_MODULE,
+	.name = "can327",
+	.num = N_DEVELOPMENT,
+	.receive_buf = can327_ldisc_rx,
+	.write_wakeup = can327_ldisc_tx_wakeup,
+	.open = can327_ldisc_open,
+	.close = can327_ldisc_close,
+	.ioctl = can327_ldisc_ioctl,
 };
 
 static int __init can327_init(void)
@@ -1216,4 +1217,4 @@ module_exit(can327_exit);
 MODULE_ALIAS_LDISC(N_DEVELOPMENT);
 MODULE_DESCRIPTION("ELM327 based CAN interface");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Max Staudt <max-linux@enpas.org>");
+MODULE_AUTHOR("Max Staudt <max@enpas.org>");
