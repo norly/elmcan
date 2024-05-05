@@ -10,6 +10,13 @@ This driver has become an official part of Linux since v6.0:
 
     https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/drivers/net/can/can327.c?h=v6.0
 
+For documentation and how to use the driver, please refer to the
+documentation that comes with your Linux kernel version, since
+the details may change as the driver evolves. The documentation
+below applies ONLY to the downstream driver.
+
+    https://www.kernel.org/doc/html/latest/networking/device_drivers/can/can327.html
+
 Please send patches upstream to [linux-can] and the maintainers for
 this driver.
 
